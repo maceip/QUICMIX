@@ -67,26 +67,23 @@ emulator (simulation) — 4 mb, 3 hops, 5 ms/hop, 2% drop, ~1.2 mb/s cap:
 | cc | goodput | loss | vs stock |
 |---|---|---|---|
 | stock cubic | 0.09 mb/s | 20% | 1.0× |
-| cubic + tolerant timers | 0.36 mb/s | 4% | 3.8× |
-| quicmix | 1.00 mb/s | 7% | **10.8×** |
+| cubic + tolerant timers | 0.32 mb/s | 5% | 3.4× |
+| quicmix | 0.99 mb/s | 7% | **10.6×** |
 
 emulator rotation — 3 hops, 10 ms/hop, median of 11:
 
 | | cost | |
 |---|---|---|
-| cold (build fresh circuit) | 178 ms | handshake + data rtt |
-| warm (pre-warmed pool) | 60 ms | data rtt only → **3.0×** |
+| cold (build fresh circuit) | 194 ms | handshake + data rtt |
+| warm (pre-warmed pool) | 58 ms | data rtt only → **3.3×** |
 
-nym mainnet (measured) — 16 kb upload over real quic:
+nym mainnet (measured probe): 30/30 returned, 0% loss, 2.8 s rtt p50, 4.6 s p90,
+~6 msg/s. quic + quicmix runs end-to-end over this (a real http fetch).
 
-| cc | fct | goodput | retransmits |
-|---|---|---|---|
-| stock cubic | 2.1 s | 7.6 kb/s | 1 |
-| quicmix | 1.8 s | 8.8 kb/s | 0 |
-
-nym mainnet probe: 30/30 returned, 0% loss, 2.8 s rtt p50, 4.6 s p90, ~6 msg/s.
-emulator numbers are large because the emulator caps rate and injects drops it
-*knows*; the nym numbers are what survives a real mixnet.
+the emulator is the controlled cc comparison (known drop/rate, repeatable). a
+head-to-head over real nym is dominated by per-transfer variance — a 16 kb upload
+swings ~2–13 s run to run — so single-sample a/b numbers there aren't meaningful;
+what real nym shows is that it works at all, and at what rtt/loss.
 
 ## substrates
 
