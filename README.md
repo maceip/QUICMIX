@@ -112,6 +112,22 @@ honest read: on real nym the cc gain is muted (near-zero real loss) and the rota
 *cost* win doesn't reproduce (per-request mix latency dominates) — what holds live is
 the unlinkability. the emulator's large numbers are the emulator flattering itself.
 
+## deployed (multi-cloud)
+
+the http→quic proxy, live across a real fleet: a quicmix gateway on aws ec2
+(eu-central-1) + two digitalocean droplets (frankfurt, new york), and a laptop
+ingress proxy to each. a `curl` through each proxy egresses from that node's own ip —
+not the laptop's (`109.205.194.69`):
+
+| via proxy → | egress ip | quic download |
+|---|---|---|
+| ec2 · eu-central-1 | `3.79.19.58` | 3.4 mb/s |
+| do · frankfurt | `64.226.93.43` | 3.0 mb/s |
+| do · new york | `68.183.148.148` | 3.4 mb/s |
+
+25 mb pulled from each node through the proxy under the oracle-fed cc (~27 mbps/flow;
+the laptop downlink is the bottleneck, not the path). full record: `DEPLOY_BENCHMARK.md`.
+
 ## layout
 
 - `src/` — core: `MixTransport`, oracle-fed cc (`client`, `sched`), rotation, emulator,
