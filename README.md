@@ -15,6 +15,17 @@ mixnet via two mechanisms shipped as one transport:
 independent of any specific mixnet; it's transport plumbing, not a new anonymity
 primitive.
 
+## data path
+
+```
+   ┌──────┐  http   ┌───────────────┐   quic over the mixnet   ┌───────────────┐  tcp   ┌──────────┐
+   │ app  │ ──────▶ │ quicmix       │ ── nym / tor / katz ───▶ │ quicmix       │ ─────▶ │  origin  │
+   │      │ ◀────── │ ingress  (a)  │ ◀──── (3 sphinx hops) ── │ gateway  (b)  │ ◀───── │ clearweb │
+   └──────┘         └───────────────┘                          └───────────────┘        └──────────┘
+
+   both ends are the same quicmix node → oracle-fed cc + unlinkable rotation run end-to-end
+```
+
 ## how it plugs in
 
 one trait. emulator and real substrates are interchangeable:
