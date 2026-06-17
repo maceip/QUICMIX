@@ -1,0 +1,34 @@
+[package]
+name = "quicmix-nym"
+version = "0.1.0"
+edition = "2021"
+
+# Real Nym datagram substrate: implements quicmix::MixTransport over nym-sdk, and
+# wires it into a live end-to-end QUIC data path (client bridge + gateway loop).
+# Isolated crate (nym-sdk is heavy) so the core quicmix build never depends on it.
+
+[dependencies]
+quicmix = { path = ".." }
+nym-sdk = "1.21"
+async-trait = "0.1"
+futures = "0.3"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+# Direct (same versions as the core crate) so the rotation demo can stand up its
+# own session-recording quinn server / cert without going through quicmix's API.
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }
+rcgen = "0.13"
+
+# The end-to-end demo: real QUIC over real Nym mainnet (ingress → mix → gateway →
+# origin), with quicmix's oracle-fed CC tuned to the measured Nym OracleParams.
+[[bin]]
+name = "nym_e2e"
+path = "src/bin/nym_e2e.rs"
+
+# Unlinkable circuit rotation over real Nym: pre-warm a pool of fresh Nym circuits
+# (each a new Nym identity), measure warm-vs-cold rotation cost, and show one e2e
+# session carried over two circuits with distinct apparent source addresses.
+[[bin]]
+name = "nym_rotate"
+path = "src/bin/nym_rotate.rs"

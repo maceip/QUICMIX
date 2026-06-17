@@ -1,0 +1,33 @@
+[package]
+name = "quicmix-katzenpost"
+version = "0.1.0"
+edition = "2021"
+
+# Katzenpost datagram substrate via its Go "thin-client" daemon socket.
+# Talks to the daemon over a TCP socket with length-prefixed CBOR frames (the real
+# thin-client wire format). Light deps: ciborium for CBOR, serde for the schema.
+
+[dependencies]
+quicmix = { path = ".." }
+async-trait = "0.1"
+anyhow = "1"
+tokio = { version = "1", features = ["net", "sync", "io-util", "macros", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+ciborium = "0.2"
+# blake2b-256 = Katzenpost's hash.Sum256, used to derive a service node's
+# destination_id_hash from its identity key (matches hpqc/hash).
+blake2 = "0.10"
+
+# Live verification against a running Katzenpost thin-client daemon (kpclientd):
+# connect, complete the CBOR handshake (ConnectionStatusEvent → NewPKIDocumentEvent
+# → SessionToken → SessionTokenReply). Proves real CBOR interop with the daemon.
+[[bin]]
+name = "kp_probe"
+path = "src/bin/kp_probe.rs"
+
+# Full data-path verification: resolve a service from the PKI doc and complete a
+# real SendMessage -> echo -> MessageReplyEvent round-trip through the testnet.
+[[bin]]
+name = "kp_echo"
+path = "src/bin/kp_echo.rs"

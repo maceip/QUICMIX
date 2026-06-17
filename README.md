@@ -1,0 +1,99 @@
+# quicmix
+
+mixnet-native quic transport. makes quic usable over a metadata-private datagram
+mixnet via two mechanisms shipped as one transport:
+
+- **oracle-fed congestion control** — feed quic the mix's measured delay/drop/rate
+  model so its reordering and anonymity drops aren't read as congestion.
+- **unlinkable rotation** — swap the quic connection + mix circuit for a fresh,
+  unlinkable one mid-session; setup hidden behind a pre-warmed pool.
+
+independent of any specific mixnet; it's the transport seam, not a new anonymity
+primitive.
+
+## the seam
+
+one trait. emulator and real substrates are interchangeable:
+
+```rust
+trait MixTransport {
+    fn oracle(&self) -> OracleParams;   // exact on the emulator, measured on a real net
+    async fn send(&self, datagram: Vec<u8>);
+    async fn recv(&self) -> Option<Vec<u8>>;
+}
+```
+
+`OracleParams { hops, mean_hop_delay, drop_prob, slot_interval, mtu }` — the
+public/aggregate timing model the scheduler reads instead of inferring from rtt/loss.
+measured live by the probes; exact on the emulator.
+
+## congestion control
+
+stock cubic collapses over a mix (reads reordering + anonymity drops as congestion).
+quicmix instead:
+
+- fixed bdp window (oracle rate × rtt), paced to the mix rate rather than probing past it.
+- loss not treated as a congestion signal — anonymity drops are arq-recovered, not backed off.
+- loss-detection threshold derived from the measured per-hop jitter, so a merely-delayed
+  packet isn't mistaken for a drop.
+
+## rotation
+
+the logical session lives end-to-end inside the tunnel (a session id in the first
+stream bytes), so the quic connection + circuit are disposable. each rotation is a
+fresh client endpoint (no resumption ticket → fresh keys, connection ids, source
+addr) over a fresh circuit (new mix identity). a pre-warmed pool hides the setup
+handshake so the swap is a data round-trip, not a full bootstrap.
+
+## substrates
+
+| crate | substrate | status |
+|---|---|---|
+| `src/` | emulated datagram mixnet | cc + rotation, unit-tested |
+| `quicmix-nym/` | nym mainnet (datagram) | full end-to-end; cc + rotation verified live |
+| `quicmix-tor/` | tor via arti (stream) | real circuit; cc inert on a reliable stream |
+| `quicmix-katzenpost/` | katzenpost thin-client daemon | real cbor; pki-resolved `sendmessage`→reply verified live |
+
+quic runs natively over datagram substrates. tor is a reliable stream, so it's framed
+into datagrams and head-of-line-blocks — a compatible slow leg, not a peer of the
+datagram nets; quicmix's cc does not govern it.
+
+## verified live
+
+measured on a laptop with open egress (full record in `REAL_RESULTS.md`):
+
+- **nym mainnet** — http fetch end-to-end over real quic + quicmix cc; measured 0% loss,
+  ~2.8s rtt p50, ~6 msg/s; unlinkable rotation (one session over two distinct nym
+  identities, two distinct apparent sources).
+- **tor** — real arti circuit to check.torproject.org (http 301).
+- **katzenpost** (docker testnet) — pki-resolved `sendmessage`→echo→reply round-trip
+  through the mixnet; `destination_id_hash = blake2b256(identity_key)`.
+
+honest read: on real nym the cc gain is muted (near-zero real loss) and the rotation
+*cost* win doesn't reproduce (per-request mix latency dominates) — what holds live is
+the unlinkability. the emulator's large numbers are the emulator flattering itself.
+
+## layout
+
+- `src/` — core: `MixTransport`, oracle-fed cc (`client`, `sched`), rotation, emulator,
+  node proxy (ingress + gateway), online oracle estimator.
+- `quicmix-{nym,tor,katzenpost}/` — real substrate bindings; heavy deps isolated so the
+  core build pulls none of them.
+- `realprobe/`, `torprobe/` — live measurement probes → measured `OracleParams`.
+
+## run
+
+```sh
+cargo test                                                       # core, 13 tests
+cargo run --bin quicmix                                          # ingress → mix-emulator → gateway → origin
+cargo run --bin bench                                            # stock cubic vs quicmix cc
+cargo run --bin rotate                                           # rotation cost + unlinkability
+
+# real networks (open egress):
+cargo run --release --manifest-path realprobe/Cargo.toml -- 30   # nym mainnet → OracleParams
+cargo run --release --manifest-path quicmix-nym/Cargo.toml --bin nym_e2e      # quic over nym
+cargo run --release --manifest-path quicmix-nym/Cargo.toml --bin nym_rotate   # rotation over nym
+cargo run --manifest-path quicmix-katzenpost/Cargo.toml --bin kp_echo         # katzenpost round-trip
+```
+
+the binding crates are standalone (own `Cargo.lock`); the core crate has no network deps.
