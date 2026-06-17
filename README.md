@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/quicmix.png" alt="quicmix" width="520">
+</p>
+
 # quicmix
 
 mixnet-native quic transport. makes quic usable over a metadata-private datagram
