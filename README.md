@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/quicmix.png" alt="quicmix" width="520">
+  <img src="assets/quicmix.png" alt="quicmix" width="260">
 </p>
 
 # quicmix
@@ -12,10 +12,10 @@ mixnet via two mechanisms shipped as one transport:
 - **unlinkable rotation** — swap the quic connection + mix circuit for a fresh,
   unlinkable one mid-session; setup hidden behind a pre-warmed pool.
 
-independent of any specific mixnet; it's the transport seam, not a new anonymity
+independent of any specific mixnet; it's transport plumbing, not a new anonymity
 primitive.
 
-## the seam
+## how it plugs in
 
 one trait. emulator and real substrates are interchangeable:
 
@@ -49,6 +49,34 @@ fresh client endpoint (no resumption ticket → fresh keys, connection ids, sour
 addr) over a fresh circuit (new mix identity). a pre-warmed pool hides the setup
 handshake so the swap is a data round-trip, not a full bootstrap.
 
+## performance
+
+emulator (simulation) — 4 mb, 3 hops, 5 ms/hop, 2% drop, ~1.2 mb/s cap:
+
+| cc | goodput | loss | vs stock |
+|---|---|---|---|
+| stock cubic | 0.09 mb/s | 20% | 1.0× |
+| cubic + tolerant timers | 0.36 mb/s | 4% | 3.8× |
+| quicmix | 1.00 mb/s | 7% | **10.8×** |
+
+emulator rotation — 3 hops, 10 ms/hop, median of 11:
+
+| | cost | |
+|---|---|---|
+| cold (build fresh circuit) | 178 ms | handshake + data rtt |
+| warm (pre-warmed pool) | 60 ms | data rtt only → **3.0×** |
+
+nym mainnet (measured) — 16 kb upload over real quic:
+
+| cc | fct | goodput | retransmits |
+|---|---|---|---|
+| stock cubic | 2.1 s | 7.6 kb/s | 1 |
+| quicmix | 1.8 s | 8.8 kb/s | 0 |
+
+nym mainnet probe: 30/30 returned, 0% loss, 2.8 s rtt p50, 4.6 s p90, ~6 msg/s.
+emulator numbers are large because the emulator caps rate and injects drops it
+*knows*; the nym numbers are what survives a real mixnet.
+
 ## substrates
 
 | crate | substrate | status |
@@ -66,9 +94,8 @@ datagram nets; quicmix's cc does not govern it.
 
 measured on a laptop with open egress (full record in `REAL_RESULTS.md`):
 
-- **nym mainnet** — http fetch end-to-end over real quic + quicmix cc; measured 0% loss,
-  ~2.8s rtt p50, ~6 msg/s; unlinkable rotation (one session over two distinct nym
-  identities, two distinct apparent sources).
+- **nym mainnet** — http fetch end-to-end over real quic + quicmix cc; unlinkable
+  rotation (one session over two distinct nym identities, two distinct apparent sources).
 - **tor** — real arti circuit to check.torproject.org (http 301).
 - **katzenpost** (docker testnet) — pki-resolved `sendmessage`→echo→reply round-trip
   through the mixnet; `destination_id_hash = blake2b256(identity_key)`.
