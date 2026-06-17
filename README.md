@@ -19,7 +19,7 @@ primitive.
 
 ```
    ┌──────┐  http   ┌───────────────┐   quic over the mixnet   ┌───────────────┐  tcp   ┌──────────┐
-   │ app  │ ──────▶ │ quicmix       │ ── nym / tor / katz ───▶ │ quicmix       │ ─────▶ │  origin  │
+   │ app  │ ──────▶ │ quicmix       │ ── hopr / nym / tor / katz ───▶ │ quicmix       │ ─────▶ │  origin  │
    │      │ ◀────── │ ingress  (a)  │ ◀──── (3 sphinx hops) ── │ gateway  (b)  │ ◀───── │ clearweb │
    └──────┘         └───────────────┘                          └───────────────┘        └──────────┘
 
