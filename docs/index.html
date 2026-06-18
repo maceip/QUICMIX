@@ -298,12 +298,12 @@
     wave.setAttribute("d",d); }
   let shown=0, finishing=false, last=performance.now();
   (function frame(now){
-    const dt=Math.min(0.064,((now||last)-last)/1000); last=now||last;
+    const dt=Math.max(0,Math.min(0.064,((now||last)-last)/1000)); last=now||last;  // clamp first-frame skew
     // trickle toward a soft 0.9 ceiling while loading; only real completion (finishing) unlocks 100%
     const ceil=finishing?1:0.9;
     shown += (ceil-shown)*(1-Math.exp(-(finishing?9:3.2)*dt)) + (finishing?0.4:0.05)*dt;
-    if(shown>ceil) shown=ceil;
-    if(rect) rect.setAttribute("width",(shown*SQ_W).toFixed(1));
+    if(shown>ceil) shown=ceil; if(shown<0) shown=0;
+    if(rect) rect.setAttribute("width",(Math.max(0,shown*SQ_W)).toFixed(1));
     if(pct) pct.textContent=Math.round(shown*100)+"%";
     if(finishing && shown>=0.999){ if(boot) boot.style.display="none"; return; }
     if(!boot || boot.style.display!=="none") requestAnimationFrame(frame);
