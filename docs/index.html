@@ -132,7 +132,7 @@
     opacity:0;transition:opacity .45s ease,transform .45s ease,top .6s cubic-bezier(.5,.05,.2,1)}
   .connlegend.show{opacity:1;transform:translate(-50%,0)}
   /* on the loaded stage the legend drops below the morphed connection bar that flies on top of it */
-  .connlegend.loaded{top:130px}
+  .connlegend.loaded{top:124px}
   /* corner ticks for the hud-frame feel */
   .connlegend::before,.connlegend::after{content:"";position:absolute;width:10px;height:10px;
     border:1px solid var(--cyan);pointer-events:none}
@@ -145,7 +145,14 @@
     text-shadow:0 0 7px rgba(82,255,143,.5);flex:none}
   .connlegend .cl-jp.act{color:var(--cyan);text-shadow:0 0 8px rgba(56,225,255,.6);animation:cljp 1.4s steps(2,start) infinite}
   @keyframes cljp{50%{opacity:.35}}
-  .connlegend .cl-svg{display:block;width:100%;height:auto}
+  .connlegend .cl-svg{display:block;width:100%;height:auto;max-height:132px}
+  /* the real next/prev hop line */
+  .connlegend .cl-hops{font-size:9.5px;letter-spacing:.04em;color:#9fe9c7;margin:1px 0 3px;text-align:center}
+  .connlegend .cl-hops b{color:var(--cyan);font-weight:600}
+  .connlegend .cl-hops .cl-sep{color:var(--p-dim);margin:0 6px}
+  /* loaded: the connection rail flies onto the top, so compact the legend + drop the hop line */
+  .connlegend.loaded .cl-hops{display:none}
+  .connlegend.loaded .cl-svg{max-height:84px}
   /* nodes */
   .cl-halo{filter:blur(1.5px)}
   .cl-dot2{transform-box:fill-box;transform-origin:center}
@@ -154,8 +161,11 @@
   .cl-lbl{font-family:inherit;fill:#bdf3d6;font-size:9px;letter-spacing:.04em;text-anchor:middle}
   .cl-lbl.main{fill:#eafdff;font-size:9.5px}
   .cl-lbl.sub{fill:#6fae93;font-size:7.5px;letter-spacing:.12em;text-transform:uppercase}
+  .cl-lbl.side{text-anchor:start;fill:#6fae93;font-size:8.5px}   /* parallel substrate labels (dim = available) */
+  .cl-lbl.side.on{fill:#eafdff;font-size:9.5px}                  /* the active substrate */
   /* edges — base wire, a slow blurred "lava" flow + a sharp "electrical" spark sweeping along it */
   .cl-line{fill:none;stroke:rgba(56,225,255,.6);stroke-width:2;filter:drop-shadow(0 0 4px rgba(56,225,255,.55))}
+  .cl-line.off{stroke:rgba(82,255,143,.16);stroke-width:1.2;filter:none}   /* inactive parallel rails */
   .cl-lava{fill:none;stroke:#52ff8f;stroke-width:5;stroke-linecap:round;stroke-dasharray:10 46;
     opacity:.30;filter:blur(2.2px);animation:cllava 3.6s ease-in-out infinite}
   .cl-lava.flow{stroke:#5b9bff;opacity:.55;animation-duration:2.1s}
@@ -165,10 +175,24 @@
   .cl-spark.flow{opacity:1;stroke-dasharray:3 20;animation-duration:.85s}
   @keyframes clspark{to{stroke-dashoffset:-300}}
 
+  /* status rail — the collapsed connection card with sparklines, sitting on top of the legend */
+  .metrics.morph.rail{display:flex;align-items:stretch;gap:0;padding:6px 6px;
+    background:linear-gradient(180deg,rgba(6,22,30,.96),rgba(3,11,16,.93));border-color:rgba(56,225,255,.6);
+    box-shadow:0 0 26px rgba(56,225,255,.28);animation:railIn .55s cubic-bezier(.4,.1,.2,1) both}
+  @keyframes railIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+  .rail-cell{flex:1;display:flex;flex-direction:column;gap:1px;padding:2px 10px;min-width:0;
+    border-left:1px solid rgba(56,225,255,.14)}
+  .rail-cell:first-child{border-left:0}
+  .rail-cell.rail-head{flex:0 0 auto;justify-content:center;align-items:flex-start}
+  .rail-k{font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--p-dim)}
+  .rail-v{font-size:13px;color:#eafdff;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rail-cell .spark{width:100%;height:18px;margin-top:1px}
+  .rail-head .cl-jp{font-size:12px;color:var(--cyan);text-shadow:0 0 7px rgba(56,225,255,.5)}
+
   /* the delivered page — unrolls below the legend on the loaded stage */
-  .result{position:fixed;left:50%;top:274px;transform:translateX(-50%);z-index:6;pointer-events:auto;
+  .result{position:fixed;left:50%;top:250px;transform:translateX(-50%);z-index:6;pointer-events:auto;
     width:min(860px,calc(100% - 24px));bottom:86px;display:flex;flex-direction:column;
-    border:1px solid rgba(56,225,255,.6);box-shadow:0 0 30px rgba(56,225,255,.22);background:#02060a;overflow:hidden;
+    border:1px solid rgba(56,225,255,.6);box-shadow:0 0 30px rgba(56,225,255,.22);background:transparent;overflow:hidden;
     transform-origin:top center;animation:unroll .65s cubic-bezier(.4,.1,.2,1) both}
   @keyframes unroll{from{transform:translateX(-50%) scaleY(.02);opacity:.3}to{transform:translateX(-50%) scaleY(1);opacity:1}}
   .result-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 11px;
@@ -176,7 +200,8 @@
     border-bottom:1px solid rgba(56,225,255,.3);background:linear-gradient(180deg,rgba(56,225,255,.08),transparent)}
   .result-bar b{color:var(--cyan)}
   .result-bar .rb-url{color:#bdffd4;text-transform:none;letter-spacing:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .resultframe{flex:1;width:100%;border:0;background:#fff}
+  /* 80% opacity so the rotating globe stays visible behind the delivered page */
+  .resultframe{flex:1;width:100%;border:0;background:#fff;opacity:.8}
 
   /* the big neon "start over" control on the loaded stage */
   .startover{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:7;pointer-events:auto;
@@ -201,18 +226,24 @@
     /* connection panel: docked top-left while routing, full-width bar when morphed */
     /* dock the connection panel bottom-right and the map key bottom-left so they sit side by side */
     .metrics.dock{top:auto;bottom:max(8px,env(safe-area-inset-bottom));left:auto;right:8px;width:min(48%,210px);padding:8px 10px}
-    .metrics.morph{top:50px;width:calc(100% - 16px)}
     .dotkey{left:8px;bottom:max(8px,env(safe-area-inset-bottom));font-size:9.5px;padding:7px 9px;max-width:46%}
     .dotkey .row{white-space:normal}
 
-    /* connection legend full width; drop role captions, enlarge node names */
+    /* loaded "header": the status rail sits full-width at the very top and wraps its cells */
+    .metrics.morph.rail{top:46px;width:calc(100% - 16px);flex-wrap:wrap;padding:6px 4px}
+    .metrics.morph.rail .rail-cell{flex:1 1 30%;border-left:0;padding:3px 8px}
+    .rail-cell .spark{height:15px}
+
+    /* connection legend full width; below the rail when loaded; parallel rails stay readable */
     .connlegend{width:calc(100% - 16px);padding:8px 10px 6px}
-    .connlegend.loaded{top:128px}
+    .connlegend.loaded{top:150px}
     .cl-lbl.sub{display:none}
-    .cl-lbl.main{font-size:13px}
+    .cl-lbl.side{font-size:10px}
+    .cl-lbl.main{font-size:12px}
+    .cl-hops{font-size:9px}
 
     /* delivered page fills the lower screen */
-    .result{top:228px;width:calc(100% - 16px);bottom:72px}
+    .result{top:236px;width:calc(100% - 16px);bottom:70px}
     .startover{bottom:14px;font-size:13px;padding:12px 24px}
 
     .hint{display:none}                  /* touch users don't need the drag/scroll hint */
@@ -221,8 +252,9 @@
   /* landscape phones / very short viewports — give the iframe more of the screen */
   @media (max-height:480px){
     .ctl.intro{top:50%}
-    .connlegend.loaded{top:74px}
-    .result{top:158px;bottom:56px}
+    .metrics.morph.rail{top:38px}
+    .connlegend.loaded{top:118px}
+    .result{top:168px;bottom:50px}
   }
 </style>
 </head>
@@ -295,9 +327,10 @@ const html = htm.bind(React.createElement);
 
 const R = 2, LIFT = 0.42;
 // the bounce iframe loader on the gateway droplet (quicmix-bounce, behind caddy). it re-serves the
-// requested page without X-Frame-Options / frame-ancestors so the result iframe can embed it.
-// set to "" to embed the url directly (most sites will then refuse to be framed).
-const BOUNCE = "https://64.226.93.43.nip.io/bounce";
+// requested page without X-Frame-Options / frame-ancestors so the result iframe can embed any site.
+// leave "" to embed the url directly (works for sites that allow framing, e.g. example.com); once
+// quicmix-bounce is deployed, set this to its url (e.g. "https://64.226.93.43.nip.io/bounce").
+const BOUNCE = "";
 
 const COLORS = { public:"#3ad17a", nym:"#ff9e3d", tor:"#9d7bff", katzenpost:"#2ee6c0", hopr:"#ffd23f",
                  gateway:"#38e1ff", origin:"#ffffff", rail:"#3b82f6" };
@@ -350,8 +383,8 @@ function clusterDots(center,n,spread=10){
 
 // the deployed gateways you can route through (verified live)
 const GATEWAYS = [
-  { id:"fra1", provider:"digitalocean fra1", ip:"64.226.93.43", lat:50.11, lon:8.68 },
-  { id:"nyc3", provider:"digitalocean nyc3", ip:"68.183.148.148", lat:40.71, lon:-74.01 },
+  { id:"fra1", provider:"digitalocean fra1", ip:"64.226.93.43", city:"frankfurt", lat:50.11, lon:8.68 },
+  { id:"nyc3", provider:"digitalocean nyc3", ip:"68.183.148.148", city:"new york", lat:40.71, lon:-74.01 },
 ];
 const INGRESS = { lat:37.77, lon:-122.42, label:"ingress (you)" };
 const ORIGIN  = { lat:51.51, lon:-0.13,   label:"origin" };
@@ -457,19 +490,16 @@ function RouteNodes({path}){
 
 // the multi-hop path the dial builds. quicmix sits on BOTH sides — a client at the ingress (you) and
 // a peer at the gateway — with the mix substrates in the middle, then a final hop out to the domain.
-function buildPath(gwIndex,domain){
+// quicmix rides ONE substrate (not a serial chain): you (quicmix client) → a single mix node →
+// the quicmix gateway (the real next hop: ip · city) → the destination domain.
+function buildPath(gwIndex,domain,activeMix){
   const g=GATEWAYS[gwIndex];
-  const nym=clusterDots(MIXNETS[0].center,MIXNETS[0].n)[1];
-  const tor=clusterDots(MIXNETS[1].center,MIXNETS[1].n)[1];
-  const katz=clusterDots(MIXNETS[2].center,MIXNETS[2].n)[1];
-  const hopr=clusterDots(MIXNETS[3].center,MIXNETS[3].n)[1];
+  const m=MIXNETS[(activeMix||0)%MIXNETS.length];
+  const mix=clusterDots(m.center,m.n)[1];
   const node=(lat,lon,label,color)=>{const v=ll(lat,lon);return{v,dir:v.clone().normalize(),label,color};};
   return [ node(INGRESS.lat,INGRESS.lon,"you · quicmix client",COLORS.gateway),
-           node(nym[0],nym[1],"nym mix",COLORS.nym),
-           node(tor[0],tor[1],"tor relay",COLORS.tor),
-           node(katz[0],katz[1],"katzenpost mix",COLORS.katzenpost),
-           node(hopr[0],hopr[1],"hopr node",COLORS.hopr),
-           node(g.lat,g.lon,"quicmix gateway",COLORS.gateway),
+           node(mix[0],mix[1],m.label,COLORS[m.id]),
+           node(g.lat,g.lon,`quicmix gateway · ${g.ip} · ${g.city}`,COLORS.gateway),
            node(ORIGIN.lat,ORIGIN.lon,domain||"destination",COLORS.origin) ];
 }
 
@@ -522,10 +552,10 @@ function ActiveLabel({node}){
 // ---- the animation driver: a one-shot routing pass, driven by the app's stage machine ----
 // dialRef (0..1) reveals the path hop by hop during "dialing"; trafRef (0..1) flies the packet
 // across the connected rail during "traffic". both are plain refs advanced by the app on rAF.
-const DIAL_SECS=4.6, TRAFFIC_SECS=4.2;   // seconds for the dial-up and the in-flight phases
+const DIAL_SECS=8.0, TRAFFIC_SECS=4.6;   // dial-up is slow + cinematic; in-flight phase
 function Rig({path,stage,dialRef,trafRef,packetState,labelState,railState}){
-  const segs=path.length-1;
-  useFrame(()=>{
+  const segs=path.length-1; const {camera}=useThree();
+  useFrame((st,dt)=>{
     let reveal=0, connected=false, pPos=null, pVis=false, activeIdx=-1;
     if(stage==="dialing"){
       const p=ease(Math.min(1,Math.max(0,dialRef.current)));
@@ -540,12 +570,21 @@ function Rig({path,stage,dialRef,trafRef,packetState,labelState,railState}){
     railState.current={reveal,connected};
     packetState.current={pos:pPos,visible:pVis};
     labelState.current=activeIdx;
+    // guided distance (radius only, so OrbitControls' rotation + damping still own the spin):
+    // slowly zoom IN toward the forming connection during the dial, ease back out for traffic,
+    // and recede on loaded so the globe peeks behind the translucent page. intro is hands-off.
+    const targetDist = stage==="dialing" ? 5.2 - 1.7*ease(Math.min(1,dialRef.current))
+      : stage==="traffic" ? 4.6
+      : stage==="loaded" ? 6.0
+      : null;
+    if(targetDist!==null){ const cur=camera.position.length();
+      if(cur>0.01){ const next=cur+(targetDist-cur)*(1-Math.pow(0.03,dt)); camera.position.multiplyScalar(next/cur); } }
   });
   return null;
 }
 
-function Scene({gwIndex,onPick,stage,dialRef,trafRef,dim,domain}){
-  const path=useMemo(()=>buildPath(gwIndex,domain),[gwIndex,domain]);
+function Scene({gwIndex,onPick,stage,dialRef,trafRef,dim,domain,activeMix}){
+  const path=useMemo(()=>buildPath(gwIndex,domain,activeMix),[gwIndex,domain,activeMix]);
   const packetState=useRef({pos:null,visible:false});
   const labelState=useRef(-1); const railState=useRef({reveal:0,connected:false});
   const [rail,setRail]=useState({reveal:0,connected:false});
@@ -578,67 +617,98 @@ const PHASES={dial:"dialing path",connect:"path connected",traverse:"request in 
 
 // reframe the globe for the current viewport — pull back + widen fov on portrait / narrow screens
 // (phones, folded cover screens) so the whole globe and its arcs stay in frame; runs on every resize.
-function Responsive(){
+// frame the globe per viewport via projection only (the Rig owns distance). phones / folded / foldable-
+// open-portrait: keep the globe large and show just the upper slice so a big hemisphere rises from the
+// bottom. desktop loaded: nudge the globe off-centre so it peeks beside the translucent result page.
+function Responsive({stage}){
   const {camera,size}=useThree();
   useEffect(()=>{
-    const w=size.width, h=size.height, portrait=h>=w;
-    // phones, folded cover screens and foldable-open-portrait: don't shrink the whole globe — keep it
-    // large and frame just the upper part, so a big hemisphere "rises" from the bottom (~half the globe
-    // shows) with the hud floating over it. desktop / landscape gets the full globe centred.
-    const compact = portrait || w < 760;
+    const w=size.width, h=size.height, portrait=h>=w, compact=portrait||w<760;
     if(compact){
       camera.fov = portrait ? 60 : 56;
-      camera.position.set(0, 0.15, portrait ? 4.8 : 5.2);
-      const f = 0.72;                       // put the globe centre ~72% down the screen
-      camera.setViewOffset(w, 2*f*h, 0, 0, w, h);   // render the top slice of a taller frustum
-    } else {
-      camera.clearViewOffset();
+      camera.setViewOffset(w, 2*0.72*h, 0, 0, w, h);   // globe centre ~72% down → upper hemisphere
+    } else if(stage==="loaded"){
       camera.fov = 52;
-      camera.position.set(0, 0.9, 5.2);
+      camera.setViewOffset(w, h, Math.round(w*0.17), 0, w, h);   // shift globe off-centre (peeks left)
+    } else {
+      camera.fov = 52;
+      camera.clearViewOffset();
     }
     camera.updateProjectionMatrix();
-  },[size.width,size.height,camera]);
+  },[size.width,size.height,stage,camera]);
   return null;
 }
 
-// the route strip that rises above the globe just before traffic crosses the tunnel.
-// mirrors the readme data-path diagram (laptop → quicnet → substrate ↘ substrate → gateway → origin),
-// with the camera held still: which hop is live shows here, and traffic flows along the wires.
-const CL_NODES=[
-  {x:48, y:34, below:false},   // your laptop
-  {x:152,y:34, below:false},   // quicnet
-  {x:256,y:34, below:false},   // substrate x
-  {x:352,y:62, below:true },   // substrate y  ← the "\_>" step down
-  {x:456,y:34, below:false},   // quicmix gateway
-  {x:560,y:34, below:false},   // origin
-];
-// orthogonal wire between two nodes — collapses to a straight line when the nodes share a row
-function clEdge(i){const A=CL_NODES[i],B=CL_NODES[i+1],mx=(A.x+B.x)/2;
-  return `M${A.x},${A.y} L${mx},${A.y} L${mx},${B.y} L${B.x},${B.y}`;}
-function ConnectionLegend({route,activeIdx,visible,flowing,title,cls=""}){
+// the circuit readout above the globe. quicmix sits on BOTH ends (client + gateway); the mix
+// substrates sit BETWEEN them as PARALLEL alternatives — the connection rides ONE of them (the
+// active rail flows; the others are shown dim as available parallel options, never chained in series).
+const clPath=(a,b)=>{const mx=(a[0]+b[0])/2;return `M${a[0]},${a[1]} L${mx},${a[1]} L${mx},${b[1]} L${b[0]},${b[1]}`;};
+function ConnectionLegend({legend,visible,flowing,title,cls=""}){
+  const you=[46,63], ingress=[138,63], gw=[486,63], dom=[582,63], subX=312, subY=[16,46,76,106];
+  const act=legend.active, fl=flowing?" flow":"";
+  const edges=[{d:clPath(you,ingress),on:true}];
+  legend.subs.forEach((s,i)=>{const sn=[subX,subY[i]];
+    edges.push({d:clPath(ingress,sn),on:i===act}); edges.push({d:clPath(sn,gw),on:i===act});});
+  edges.push({d:clPath(gw,dom),on:true});
+  const nodes=[
+    {p:you,color:"#dffff0",main:"you",sub:"client"},
+    {p:ingress,color:"#52ff8f",main:"quicmix",sub:"ingress"},
+    ...legend.subs.map((s,i)=>({p:[subX,subY[i]],color:s.color,main:s.label,side:true,on:i===act})),
+    {p:gw,color:COLORS.gateway,main:"quicmix gateway",sub:legend.gateway.city},
+    {p:dom,color:COLORS.origin,main:legend.domain,sub:"destination"},
+  ];
   return html`<div class=${"connlegend"+(visible?" show":"")+(cls?" "+cls:"")}>
     <div class="cl-head">
       <span class="cl-jp">接続</span>
       <span class="cl-title">${title}</span>
       <span class=${"cl-jp"+(flowing?" act":"")}>${flowing?"通信中":"待機"}</span>
     </div>
-    <svg class="cl-svg" viewBox="0 0 608 96" preserveAspectRatio="xMidYMid meet">
-      ${[0,1,2,3,4].map(i=>{const d=clEdge(i);const fl=flowing?" flow":"";
-        return html`<${React.Fragment} key=${"e"+i}>
-          <path d=${d} class="cl-line"/>
-          <path d=${d} class=${"cl-lava"+fl}/>
-          <path d=${d} class=${"cl-spark"+fl}/>
-        </${React.Fragment}>`;})}
-      ${CL_NODES.map((nd,i)=>{const r=route[i];
-        const ya=nd.below?nd.y+15:nd.y-19, yb=nd.below?nd.y+25:nd.y-9;
+    <div class="cl-hops">next hop <b>→ ${legend.gateway.ip}</b> · ${legend.gateway.city}
+      <span class="cl-sep">·</span> gateway prev hop <b>← ingress (you)</b></div>
+    <svg class="cl-svg" viewBox="0 0 620 126" preserveAspectRatio="xMidYMid meet">
+      ${edges.map((e,i)=>html`<${React.Fragment} key=${"e"+i}>
+        <path d=${e.d} class=${"cl-line"+(e.on?"":" off")}/>
+        ${e.on?html`<${React.Fragment}><path d=${e.d} class=${"cl-lava"+fl}/><path d=${e.d} class=${"cl-spark"+fl}/></${React.Fragment}>`:null}
+      </${React.Fragment}>`)}
+      ${nodes.map((n,i)=>{const[x,y]=n.p; const lit=n.on!==false;
+        const labels = n.side
+          ? html`<text x=${x+11} y=${y+3.4} class=${"cl-lbl side"+(n.on?" on":"")}>${n.main}</text>`
+          : html`<${React.Fragment}><text x=${x} y=${y-15} class="cl-lbl main">${n.main}</text>
+              <text x=${x} y=${y+19} class="cl-lbl sub">${n.sub}</text></${React.Fragment}>`;
         return html`<${React.Fragment} key=${"n"+i}>
-          <circle cx=${nd.x} cy=${nd.y} r=${11} class="cl-halo" fill=${r.color} opacity=${i===activeIdx?0.45:0.16}/>
-          <circle cx=${nd.x} cy=${nd.y} r=${4.5} class=${"cl-dot2"+(i===activeIdx?" active":"")}
-            fill=${r.color} stroke="#02060a" stroke-width=${1}/>
-          <text x=${nd.x} y=${ya} class="cl-lbl main">${r.main}</text>
-          <text x=${nd.x} y=${yb} class="cl-lbl sub">${r.sub}</text>
+          <circle cx=${x} cy=${y} r=${10} class="cl-halo" fill=${n.color} opacity=${lit?0.42:0.12}/>
+          <circle cx=${x} cy=${y} r=${4.2} class=${"cl-dot2"+(lit?" active":"")} fill=${n.color}
+            stroke="#02060a" stroke-width=${1} opacity=${lit?1:0.5}/>
+          ${labels}
         </${React.Fragment}>`;})}
     </svg>
+  </div>`;
+}
+
+// a tiny inline line chart from a recent series of values (latency / throughput / cwnd)
+function Sparkline({data,color,w=64,h=20}){
+  if(!data||data.length<2) return html`<svg class="spark" viewBox=${`0 0 ${w} ${h}`} preserveAspectRatio="none"></svg>`;
+  const mn=Math.min(...data), mx=Math.max(...data), rng=(mx-mn)||1;
+  const pts=data.map((v,i)=>`${(i/(data.length-1)*w).toFixed(1)},${(h-2-((v-mn)/rng)*(h-4)).toFixed(1)}`).join(" ");
+  const ly=(h-2-((data[data.length-1]-mn)/rng)*(h-4)).toFixed(1);
+  return html`<svg class="spark" viewBox=${`0 0 ${w} ${h}`} preserveAspectRatio="none">
+    <polyline points=${pts} fill="none" stroke=${color} stroke-width=${1.5} vector-effect="non-scaling-stroke"/>
+    <circle cx=${w} cy=${ly} r=${1.8} fill=${color}/></svg>`;
+}
+
+// the collapsed status rail that flies onto the top of the legend when the page is delivered:
+// compact cells with sparklines for the congestion-control / latency output + the live next hop.
+function StatusRail({metrics,hist,gateway}){
+  const cell=(k,v,data,color)=>html`<div class="rail-cell">
+    <div class="rail-k">${k}</div><div class="rail-v" style=${{color}}>${v}</div>
+    ${data?html`<${Sparkline} data=${data} color=${color}/>`:null}</div>`;
+  return html`<div class="frame metrics morph rail">
+    <div class="rail-cell rail-head"><span class="cl-jp">接続</span><div class="rail-v">connection</div></div>
+    ${cell("latency", metrics?.rtt?metrics.rtt.toFixed(0)+" ms":"–", hist.rtt, "#38e1ff")}
+    ${cell("throughput", fmtBps(metrics?.bps), hist.bps, "#52ff8f")}
+    ${cell("cwnd", metrics?.cwnd?(metrics.cwnd/1024).toFixed(0)+" kb":"–", hist.cwnd, "#ffb53d")}
+    ${cell("next hop", gateway?.ip||"–", null, "#38e1ff")}
+    ${cell("geo", gateway?.city||"–", null, "#bdffd4")}
   </div>`;
 }
 
@@ -656,8 +726,9 @@ function App(){
   const [stage,setStage]=useState("intro");
   const [metrics,setMetrics]=useState(null);
   const [,setTick]=useState(0);   // nudges re-render ~15fps so the legend hop + metrics track the refs
-  // the two substrates this circuit happens to ride — re-rolled per fetch (unlinkable-rotation flavour)
-  const [subPair,setSubPair]=useState([MIXNETS[0],MIXNETS[1]]);
+  // the ONE substrate this circuit rides (re-rolled per fetch); the others show as parallel options
+  const [activeMix,setActiveMix]=useState(0);
+  const histRef=useRef({rtt:[],bps:[],cwnd:[]});   // recent series for the status-rail sparklines
 
   // hand off from the loading screen to the globe ui directly (no start interstitial)
   useEffect(()=>{
@@ -667,8 +738,8 @@ function App(){
   },[]);
 
   function startFetch(){
-    const a=Math.floor(Math.random()*MIXNETS.length); let b=Math.floor(Math.random()*(MIXNETS.length-1)); if(b>=a)b++;
-    setSubPair([MIXNETS[a],MIXNETS[b]]);
+    setActiveMix(Math.floor(Math.random()*MIXNETS.length));
+    histRef.current={rtt:[],bps:[],cwnd:[]};
     dialRef.current=0; trafRef.current=0; setMetrics(null); setStage("dialing");
   }
   function reset(){ dialRef.current=0; trafRef.current=0; setMetrics(null); setStage("intro"); }
@@ -683,8 +754,10 @@ function App(){
     const step=(now)=>{
       ref.current=Math.min(1, ref.current + (now-last)/1000/dur); last=now;
       if(stage==="traffic" && now-lastTick>66){ lastTick=now; const tp=ref.current;
-        setMetrics({ egress:gw.ip, rtt:38+5*Math.sin(tp*7), bps:Math.min(1,tp*1.15)*3.0e6,
-          cwnd:(48+tp*44)*1024, lost:Math.floor(tp*4), sent:Math.floor(tp*1500), code: tp>=1?200:null });
+        const rtt=38+5*Math.sin(tp*7), bps=Math.min(1,tp*1.15)*3.0e6, cwnd=(48+tp*44)*1024;
+        const H=histRef.current; H.rtt.push(rtt); H.bps.push(bps); H.cwnd.push(cwnd);
+        if(H.rtt.length>46){H.rtt.shift();H.bps.shift();H.cwnd.shift();}
+        setMetrics({ egress:gw.ip, rtt, bps, cwnd, lost:Math.floor(tp*4), sent:Math.floor(tp*1500), code: tp>=1?200:null });
       } else if(now-lastTick>66){ lastTick=now; setTick(t=>t+1); }
       if(ref.current>=1){
         if(stage==="dialing") setStage("traffic");
@@ -698,20 +771,16 @@ function App(){
     return ()=>cancelAnimationFrame(raf);
   },[stage]);
 
-  const domain=hostOf(url), target=urlOf(url);
-  const dim = stage==="intro"?0.5 : stage==="dialing"?0 : stage==="traffic"?0.42 : 0.5;
-  const prog = stage==="loaded"?1 : stage==="traffic"?Math.min(1,trafRef.current) : stage==="dialing"?Math.min(1,dialRef.current) : 0;
-  const subColor=id=>COLORS[id]||"#5cff9a";
-  // quicmix sits on BOTH sides — client (you) at ingress, peer at the gateway — substrates between, then the domain
-  const route=[
-    {color:"#dffff0",               main:"you",            sub:"client"},
-    {color:"#52ff8f",               main:"quicmix",        sub:"ingress"},
-    {color:subColor(subPair[0].id), main:subPair[0].label, sub:"substrate"},
-    {color:subColor(subPair[1].id), main:subPair[1].label, sub:"substrate"},
-    {color:COLORS.gateway,          main:"quicmix",        sub:"gateway"},
-    {color:COLORS.origin,           main:domain,           sub:"destination"},
-  ];
-  const routeActive = Math.round(prog*(route.length-1));
+  const domain=hostOf(url), target=urlOf(url), gw=GATEWAYS[gwIndex];
+  // dim the globe per stage; on loaded keep it fairly visible behind the translucent result page
+  const dim = stage==="intro"?0.5 : stage==="dialing"?0 : stage==="traffic"?0.42 : 0.16;
+  // quicmix sits on BOTH ends; the mix substrates are PARALLEL options, one of them active this circuit
+  const legend = {
+    active: activeMix,
+    subs: MIXNETS.map(m=>({id:m.id, label:m.label, color:COLORS[m.id]})),
+    gateway: { ip:gw.ip, city:gw.city },
+    domain,
+  };
   const legendVisible = stage==="traffic" || stage==="loaded";
   const flowing = stage==="traffic";
   const connTitle = stage==="loaded" ? "circuit complete · page delivered"
@@ -721,8 +790,8 @@ function App(){
   return html`<${React.Fragment}>
     <${Canvas} camera=${{position:[0,0.9,5.2],fov:52}} gl=${{antialias:true,alpha:false}} dpr=${[1,2]}
       onCreated=${({gl})=>gl.setClearColor("#02060a")} onPointerMissed=${()=>{}}>
-      <${Responsive}/>
-      <${Scene} gwIndex=${gwIndex} onPick=${stage==="intro"?setGwIndex:()=>{}} stage=${stage} dialRef=${dialRef} trafRef=${trafRef} dim=${dim} domain=${domain}/>
+      <${Responsive} stage=${stage}/>
+      <${Scene} gwIndex=${gwIndex} onPick=${stage==="intro"?setGwIndex:()=>{}} stage=${stage} dialRef=${dialRef} trafRef=${trafRef} dim=${dim} domain=${domain} activeMix=${activeMix}/>
     </${Canvas}>
 
     <div class="hud">
@@ -757,17 +826,19 @@ function App(){
         <div class="note">enter a url and hit fetch · quicmix dials a multi-hop circuit across the mixnet, then loads the page through the chosen gateway</div>
       </div>`:null}
 
-      ${stage!=="intro"?html`<div class=${"frame metrics "+(stage==="loaded"?"morph":"dock")}>
-        <h4>connection${stage==="loaded"?" · metrics":""}</h4>
+      ${(stage==="dialing"||stage==="traffic")?html`<div class="frame metrics dock">
+        <h4>connection</h4>
         <div class="m"><span>egress ip</span><b>${metrics?.egress||"…"}</b></div>
         <div class="m"><span>rtt</span><b>${metrics?.rtt?metrics.rtt.toFixed(1)+" ms":"–"}</b></div>
         <div class="m"><span>throughput</span><b>${fmtBps(metrics?.bps)}</b></div>
         <div class="m"><span>cwnd</span><b>${metrics?.cwnd?(metrics.cwnd/1024).toFixed(0)+" kb":"–"}</b></div>
         <div class="m amber"><span>lost / sent</span><b>${metrics?(`${metrics.lost??0} / ${metrics.sent??0}`):"–"}</b></div>
-        <div class="m"><span>status</span><b>${metrics?.code||"–"}</b></div>
+        <div class="m"><span>next hop</span><b>${gw.ip}</b></div>
       </div>`:null}
 
-      <${ConnectionLegend} route=${route} activeIdx=${routeActive} visible=${legendVisible} flowing=${flowing}
+      ${stage==="loaded"?html`<${StatusRail} metrics=${metrics} hist=${histRef.current} gateway=${{ip:gw.ip,city:gw.city}}/>`:null}
+
+      <${ConnectionLegend} legend=${legend} visible=${legendVisible} flowing=${flowing}
         title=${connTitle} cls=${stage==="loaded"?"loaded":""}/>
 
       ${stage==="loaded"?html`<div class="result">
