@@ -20,6 +20,9 @@
   .vig{position:fixed;inset:0;pointer-events:none;z-index:4;
     background:radial-gradient(ellipse at center,rgba(0,0,0,0) 46%,rgba(0,0,0,.80) 100%)}
   .hud{position:fixed;inset:0;pointer-events:none;z-index:6;text-shadow:0 0 6px rgba(82,255,143,.5);letter-spacing:.03em}
+  /* on desktop these zones are transparent full-screen layers — their children keep their absolute corner
+     positions; on mobile (see @media below) they become a top stack + a bottom stack */
+  .hud-top,.hud-bottom{position:fixed;inset:0;pointer-events:none}
   .frame{position:absolute;border:1px solid var(--p-dim);background:linear-gradient(180deg,rgba(82,255,143,.05),rgba(0,0,0,.20))}
   .top{top:12px;left:12px;right:12px;height:40px;display:flex;align-items:center;justify-content:space-between;
     padding:0 14px;font-size:13px;text-transform:uppercase}
@@ -132,6 +135,58 @@
     opacity:.5;filter:drop-shadow(0 0 5px #7df9ff);animation:clspark 2s linear infinite}
   .cl-spark.flow{opacity:1;stroke-dasharray:3 20;animation-duration:.85s}
   @keyframes clspark{to{stroke-dashoffset:-300}}
+
+  /* ─────────────────────────── responsive ───────────────────────────
+     phones & folded cover screens: the four corner panels overlap badly, so reflow them
+     into a top stack (brand + control + connection legend) and a bottom stack (status,
+     metrics, substrate key). foldable-open / tablet widths keep the desktop corner layout. */
+  @media (max-width:700px){
+    .top{position:static;height:auto;min-height:32px;padding:6px 10px;font-size:11px;flex-wrap:wrap;gap:1px 8px}
+    .top .sub{display:none}
+    .top .mode{margin-left:auto}
+
+    .hud-top{inset:auto;top:0;left:0;right:0;display:flex;flex-direction:column;gap:8px;
+      padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) 0 max(8px,env(safe-area-inset-left))}
+    .hud-bottom{inset:auto;bottom:0;left:0;right:0;display:flex;flex-direction:column;gap:7px;
+      padding:0 max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left))}
+
+    /* every panel flows full-width inside its zone instead of pinning to a corner */
+    .ctl,.metrics,.legend,.panel,.connlegend{position:static;inset:auto;top:auto;left:auto;right:auto;bottom:auto;
+      width:auto;max-width:none;transform:none}
+
+    .ctl{padding:9px 11px}
+    .ctl .note{display:none}
+    .ctl .gw{padding:6px 8px}
+
+    /* metrics + substrate key → two-column wrap so the bottom stack stays short */
+    .metrics{display:flex;flex-wrap:wrap;gap:0 14px;padding:8px 11px}
+    .metrics h4,.legend h4{flex-basis:100%}
+    .metrics .m{flex:1 1 40%;margin:3px 0}
+    .legend{display:flex;flex-wrap:wrap;gap:0 12px;padding:8px 11px}
+    .legend .row{flex:1 1 40%;margin:3px 0;font-size:11px}
+
+    .panel{padding:9px 11px}
+    .panel .desc{display:none}
+    .panel .step{font-size:16px}
+
+    /* the connection legend drops in under the control panel; reclaim its space when hidden */
+    .connlegend{padding:8px 10px 6px;border-color:rgba(56,225,255,.35)}
+    .connlegend:not(.show){display:none}
+    .connlegend.show{transform:none}
+    .cl-lbl.sub{display:none}            /* drop role captions, keep the node names legible */
+    .cl-lbl.main{font-size:13px}
+
+    .hint{display:none}                  /* touch users don't need the drag/scroll hint */
+    .landing .land-sub{font-size:12px}
+  }
+
+  /* landscape phones / very short viewports — vertical room is scarce, so shed the least-critical key */
+  @media (max-height:480px) and (max-width:900px){
+    .hud-bottom .legend{display:none}
+    .panel .desc{display:none}
+    .ctl .note{display:none}
+    .metrics .m{font-size:11px;margin:2px 0}
+  }
 </style>
 </head>
 <body>
@@ -364,6 +419,21 @@ function Scene({gwIndex,onPick,live,liveProg,paused,report}){
 
 const PHASES={dial:"dialing path",connect:"path connected",traverse:"request in flight",hold:"reply via surbs",live:"live trace"};
 
+// reframe the globe for the current viewport — pull back + widen fov on portrait / narrow screens
+// (phones, folded cover screens) so the whole globe and its arcs stay in frame; runs on every resize.
+function Responsive(){
+  const {camera,size}=useThree();
+  useEffect(()=>{
+    const portrait = size.height >= size.width;
+    const narrow = size.width < 560;
+    camera.fov = portrait ? 60 : (narrow ? 56 : 52);
+    const z = portrait ? 6.6 : (narrow ? 5.8 : 5.2);
+    camera.position.set(0, portrait ? 0.45 : 0.9, z);
+    camera.updateProjectionMatrix();
+  },[size.width,size.height,camera]);
+  return null;
+}
+
 // the route strip that rises above the globe just before traffic crosses the tunnel.
 // mirrors the readme data-path diagram (laptop → quicnet → substrate ↘ substrate → gateway → origin),
 // with the camera held still: which hop is live shows here, and traffic flows along the wires.
@@ -490,6 +560,7 @@ function App(){
       onCreated=${({gl})=>gl.setClearColor("#02060a")}
       onPointerMissed=${()=>{}}
       onPointerDown=${()=>{paused.current=true;}} onPointerUp=${()=>{paused.current=false;}}>
+      <${Responsive}/>
       <${Scene} gwIndex=${gwIndex} onPick=${setGwIndex} live=${live} liveProg=${liveProg} paused=${paused} report=${report}/>
     </${Canvas}>
 
@@ -503,15 +574,14 @@ function App(){
     </div>`:null}
 
     <div class="hud">
+      <div class="hud-top">
       <div class="frame top">
         <span><b>quicmix</b> // mixnet trace <span class="blink">_</span></span>
-        <span>http get → origin · quic over the mixnet</span>
+        <span class="sub">http get → origin · quic over the mixnet</span>
         <span class="mode">${mode} ${status?("· "+status):""}</span>
       </div>
 
       ${started?html`<${React.Fragment}>
-      <${ConnectionLegend} route=${route} activeIdx=${routeActive} visible=${connVisible} flowing=${flowing} title=${connTitle}/>
-
       <div class="frame ctl widget">
         <h4>fetch a real load · gateway droplet</h4>
         <div class="row">
@@ -523,6 +593,20 @@ function App(){
             <div>${g.provider}</div><div class="ip">${g.ip}</div></div>`)}
         </div>
         <div class="note">click a cyan gateway dot on the globe or a tile above · "fetch" runs a REAL request through that live droplet and streams real metrics (needs the bridge deployed). idle = the demo dial</div>
+      </div>
+
+      <${ConnectionLegend} route=${route} activeIdx=${routeActive} visible=${connVisible} flowing=${flowing} title=${connTitle}/>
+      </${React.Fragment}>`:null}
+      </div>
+
+      ${started?html`<div class="hud-bottom">
+      <div class="frame panel widget">
+        <div class="lbl">step ${live?"live":(n+1+" / 7")} · ${mode}</div>
+        <div class="step">${stepName}</div>
+        <div class="desc">${live
+          ? "a real quicmix connection to the chosen droplet — the request egresses at the gateway's ip and the rail carries real rtt, congestion-window and throughput"
+          : "quicmix dials a multi-hop path through the supported mixnets one hop at a time, then lights the neon rail and flies the request across it — drop in a url to run a real one"}</div>
+        <div class="meter"><i style=${{width:pct+"%"}}></i></div>
       </div>
 
       <div class="frame metrics widget">
@@ -544,16 +628,7 @@ function App(){
         <div class="row"><span class="dot" style=${{color:COLORS.hopr}}></span> hopr node</div>
         <div class="row"><span class="dot" style=${{color:COLORS.gateway}}></span> quicmix gateway (clickable)</div>
       </div>
-
-      <div class="frame panel widget">
-        <div class="lbl">step ${live?"live":(n+1+" / 7")} · ${mode}</div>
-        <div class="step">${stepName}</div>
-        <div class="desc">${live
-          ? "a real quicmix connection to the chosen droplet — the request egresses at the gateway's ip and the rail carries real rtt, congestion-window and throughput"
-          : "quicmix dials a multi-hop path through the supported mixnets one hop at a time, then lights the neon rail and flies the request across it — drop in a url to run a real one"}</div>
-        <div class="meter"><i style=${{width:pct+"%"}}></i></div>
-      </div>
-      </${React.Fragment}>`:null}
+      </div>`:null}
     </div>
   </${React.Fragment}>`;
 }
