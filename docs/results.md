@@ -218,7 +218,7 @@ downlink / CC window, not the path — nyc3 (US) matches the EU nodes.
 | nym mainnet | ✅ live | 20/20 returned, 0% loss, RTT p50 705 ms, 7.6 msg/s |
 | tor (arti) | ✅ live | bootstrap 0.5 s, connect 447 ms, first-byte 95 ms (HTTP 301) |
 | katzenpost (docker testnet) | ✅ live | `SendMessage`→echo→reply, error_code=0, 2574 B |
-| hopr | ⚠️ n/a | binding spec-validated + compiles; no hoprd node available to run against |
+| hopr | ✅ live | v4 session api (udp tunnel) round-trip over a pluto 3.0.0 cluster: datagram → mixnet → exit echo → back, 244 ms |
 
 ## how
 

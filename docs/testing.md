@@ -244,17 +244,33 @@ kp_echo:  parsed PKI; resolved +echo@servicenode1; SendMessage → echo → repl
 network:  PKI consensus signed by 3 dirauths; Go ping 5/5 Sphinx packets, 100%
 ```
 
-### T2.4 — HOPR (hoprd REST): failure mapping verified; live data path pending
+### T2.4 — HOPR (hoprd v4 session api): round-trip verified live
 
 ```sh
-cargo run --manifest-path quicmix-hopr/Cargo.toml --bin hopr_probe   # needs a funded hoprd node
+# against a local hopr-pluto 3.0.0 cluster (6 nodes, anvil-backed chain):
+#   docker run -d --name pluto -p 3001-3006:3001-3006 -p 1422:1422/udp \
+#     europe-west3-docker.pkg.dev/hoprassociation/docker-images/hopr-pluto:3.0.0
+# (note: the :latest / 3.1.0 image is broken — its bootstrap fails downloading
+#  python 3.14 via uv; use 3.0.0)
+cargo run --release --manifest-path quicmix-hopr/Cargo.toml --bin hopr_probe -- \
+  http://<node>:3001 'e2e-API-token^^' <dest_address> 127.0.0.1:9999 0 <node_ip> 0.0.0.0:1422
 ```
 
-- **Prereqs:** a running hoprd node (a funded one, or a local `pluto` dev cluster)
-  with its REST API token. **Not yet exercised against a live node.**
-- **Timeout bound:** 2 min.
-- **What IS verified now (T1.1, this matrix):** the real HTTP error mapping against
-  a raw-TCP mock hoprd — 401/403→`AuthFailed`, 5xx→`RemoteRejected`, wedged
-  node→`Timeout` (bounded), dead node→`Closed`. The wire protocol is validated
-  against hoprd's generated SDK (REST v3.1.0). The **live data path** still needs a
-  node — run `hopr_probe` there to confirm end-to-end.
+- **Prereqs:** a reachable hoprd 3.x node + a udp echo the exit node can reach (the
+  probe opens a v4 session to `dest` tunnelling to that echo target). pluto's default
+  token is `e2e-API-token^^`; node addresses come from `/api/v4/account/addresses`.
+- **Timeout bound:** 2 min once the cluster is up (~3-5 min to bootstrap).
+- **Look for:** the session opens against the real node, and a datagram sent into it
+  returns from the echo through the mixnet.
+- **Captured (live, pluto 3.0.0, node1→node2, 0 hops):**
+
+```
+opening hopr v4 session → dest 0x1B48…6c75 via target 127.0.0.1:9999 (0 hops)…
+session up: node data socket 0.0.0.0:1422
+sent 18 bytes into the session; awaiting echo…
+ROUND-TRIP OK in 244 ms: "quicmix-hopr-probe"
+```
+
+Plus the failure-mapping unit tests (T1.1) against a raw-TCP mock — 401/403→`AuthFailed`,
+5xx→`RemoteRejected`, wedged→`Timeout` (bounded), dead→`Closed` — now hitting the v4
+`/api/v4/session/udp` endpoint.

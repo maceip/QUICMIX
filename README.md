@@ -109,7 +109,7 @@ stochastic and the emulator's are emulator-specific — the real-network honest 
 | `quicmix-nym/` | nym mainnet (datagram) | ✅ full end-to-end, cc + rotation verified live |
 | `quicmix-tor/` | tor via arti (stream) | ✅ real circuit, cc inert on a reliable stream |
 | `quicmix-katzenpost/` | katzenpost thin-client | ✅ real cbor, pki-resolved `sendmessage`→reply verified live |
-| `quicmix-hopr/` | hopr via `hoprd` rest | ⚠️ http failure-mapping verified vs a mock, live data path pending a node |
+| `quicmix-hopr/` | hopr via `hoprd` v4 session api | ✅ real udp-tunnel session, round-trip verified live on a pluto 3.0.0 cluster (datagram → mixnet → echo → back, 244 ms) |
 
 quic runs natively over datagram substrates. tor is a reliable stream, so it's framed into
 datagrams and head-of-line-blocks — a compatible slow leg, not a peer of the datagram nets,
@@ -122,6 +122,7 @@ measured on a laptop with open egress — full record in [`docs/results.md`](doc
 - **nym mainnet** — http fetch end-to-end over real quic + quicmix cc, plus unlinkable rotation (one session over two distinct nym identities, two distinct apparent sources)
 - **tor** — real arti circuit to check.torproject.org (http 301)
 - **katzenpost** (docker testnet) — pki-resolved `sendmessage`→echo→reply round-trip through the mixnet
+- **hopr** (pluto 3.0.0 cluster) — a real v4 udp session carried a datagram through the mixnet to an exit echo and back in 244 ms
 
 honest read — on real nym the cc gain is muted (near-zero real loss) and the rotation
 *cost* win doesn't reproduce (per-request mix latency dominates), what holds live is the
