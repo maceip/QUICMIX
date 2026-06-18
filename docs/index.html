@@ -93,24 +93,45 @@
   .widget{animation:fadeIn .55s ease both}
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
-  /* connection legend — renders above the globe right before traffic crosses the tunnel */
-  .connlegend{position:fixed;top:62px;left:50%;transform:translate(-50%,-10px);z-index:6;pointer-events:none;
-    padding:10px 16px;border:1px solid var(--p-dim);
-    background:linear-gradient(180deg,rgba(56,225,255,.06),rgba(0,0,0,.35));
-    box-shadow:0 0 22px rgba(56,225,255,.18);opacity:0;
-    transition:opacity .45s ease,transform .45s ease;max-width:calc(100% - 24px)}
+  /* ── connection legend ── ghost-in-the-shell circuit readout above the globe ── */
+  .connlegend{position:fixed;top:58px;left:50%;transform:translate(-50%,-12px);z-index:6;pointer-events:none;
+    width:min(640px,calc(100% - 24px));padding:9px 14px 7px;
+    border:1px solid rgba(56,225,255,.35);
+    background:linear-gradient(180deg,rgba(4,16,22,.84),rgba(2,8,12,.74));
+    box-shadow:0 0 26px rgba(56,225,255,.16),inset 0 0 22px rgba(56,225,255,.05);
+    opacity:0;transition:opacity .5s ease,transform .5s ease}
   .connlegend.show{opacity:1;transform:translate(-50%,0)}
-  .connlegend .cl-title{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);
-    text-align:center;margin-bottom:8px;text-shadow:0 0 8px rgba(56,225,255,.5)}
-  .connlegend .cl-hops{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:3px;font-size:11px}
-  .connlegend .cl-hop{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:1px solid transparent;
-    color:#7fae9a;white-space:nowrap;transition:color .3s ease,background .3s ease,border-color .3s ease;border-radius:2px}
-  .connlegend .cl-hop .cl-dot{width:7px;height:7px;border-radius:50%;flex:none}
-  .connlegend .cl-hop.done{color:#bdffd4}
-  .connlegend .cl-hop.active{border-color:var(--cyan);background:rgba(56,225,255,.10);
-    box-shadow:0 0 12px rgba(56,225,255,.25);color:#eafcff;font-weight:600}
-  .connlegend .cl-arrow{color:var(--p-dim);font-size:11px}
-  .connlegend .cl-arrow.on{color:var(--cyan);text-shadow:0 0 6px rgba(56,225,255,.6)}
+  /* corner ticks for the hud-frame feel */
+  .connlegend::before,.connlegend::after{content:"";position:absolute;width:10px;height:10px;
+    border:1px solid var(--cyan);pointer-events:none}
+  .connlegend::before{top:-1px;left:-1px;border-right:0;border-bottom:0}
+  .connlegend::after{bottom:-1px;right:-1px;border-left:0;border-top:0}
+  .connlegend .cl-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:1px}
+  .connlegend .cl-title{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--cyan);
+    text-shadow:0 0 8px rgba(56,225,255,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .connlegend .cl-jp{font-size:11px;letter-spacing:.1em;color:var(--p);opacity:.85;
+    text-shadow:0 0 7px rgba(82,255,143,.5);flex:none}
+  .connlegend .cl-jp.act{color:var(--cyan);text-shadow:0 0 8px rgba(56,225,255,.6);animation:cljp 1.4s steps(2,start) infinite}
+  @keyframes cljp{50%{opacity:.35}}
+  .connlegend .cl-svg{display:block;width:100%;height:auto}
+  /* nodes */
+  .cl-halo{filter:blur(1.5px)}
+  .cl-dot2{transform-box:fill-box;transform-origin:center}
+  .cl-dot2.active{animation:cldot 1.3s ease-in-out infinite}
+  @keyframes cldot{50%{transform:scale(1.7)}}
+  .cl-lbl{font-family:inherit;fill:#9fe9c7;font-size:9px;letter-spacing:.04em;text-anchor:middle}
+  .cl-lbl.main{fill:#dffff0;font-size:9.5px}
+  .cl-lbl.sub{fill:var(--p-dim);font-size:7.5px;letter-spacing:.12em;text-transform:uppercase}
+  /* edges — base wire, a slow blurred "lava" flow + a sharp "electrical" spark sweeping along it */
+  .cl-line{fill:none;stroke:rgba(56,225,255,.42);stroke-width:1.7;filter:drop-shadow(0 0 3px rgba(56,225,255,.4))}
+  .cl-lava{fill:none;stroke:#52ff8f;stroke-width:5;stroke-linecap:round;stroke-dasharray:10 46;
+    opacity:.30;filter:blur(2.2px);animation:cllava 3.6s ease-in-out infinite}
+  .cl-lava.flow{stroke:#5b9bff;opacity:.55;animation-duration:2.1s}
+  @keyframes cllava{to{stroke-dashoffset:-260}}
+  .cl-spark{fill:none;stroke:#e8fbff;stroke-width:1.5;stroke-linecap:round;stroke-dasharray:2 30;
+    opacity:.5;filter:drop-shadow(0 0 5px #7df9ff);animation:clspark 2s linear infinite}
+  .cl-spark.flow{opacity:1;stroke-dasharray:3 20;animation-duration:.85s}
+  @keyframes clspark{to{stroke-dashoffset:-300}}
 </style>
 </head>
 <body>
@@ -344,18 +365,43 @@ function Scene({gwIndex,onPick,live,liveProg,paused,report}){
 const PHASES={dial:"dialing path",connect:"path connected",traverse:"request in flight",hold:"reply via surbs",live:"live trace"};
 
 // the route strip that rises above the globe just before traffic crosses the tunnel.
-// it shows every hop and highlights the live one, so the camera can stay still.
-function ConnectionLegend({path,activeIdx,visible,title}){
+// mirrors the readme data-path diagram (laptop → quicnet → substrate ↘ substrate → gateway → origin),
+// with the camera held still: which hop is live shows here, and traffic flows along the wires.
+const CL_NODES=[
+  {x:48, y:34, below:false},   // your laptop
+  {x:152,y:34, below:false},   // quicnet
+  {x:256,y:34, below:false},   // substrate x
+  {x:352,y:62, below:true },   // substrate y  ← the "\_>" step down
+  {x:456,y:34, below:false},   // quicmix gateway
+  {x:560,y:34, below:false},   // origin
+];
+// orthogonal wire between two nodes — collapses to a straight line when the nodes share a row
+function clEdge(i){const A=CL_NODES[i],B=CL_NODES[i+1],mx=(A.x+B.x)/2;
+  return `M${A.x},${A.y} L${mx},${A.y} L${mx},${B.y} L${B.x},${B.y}`;}
+function ConnectionLegend({route,activeIdx,visible,flowing,title}){
   return html`<div class=${"connlegend"+(visible?" show":"")}>
-    <div class="cl-title">${title}</div>
-    <div class="cl-hops">
-      ${path.map((node,i)=>html`<${React.Fragment} key=${"h"+i}>
-        ${i>0?html`<span class=${"cl-arrow"+(i<=activeIdx?" on":"")}>→</span>`:null}
-        <span class=${"cl-hop"+(i===activeIdx?" active":(i<activeIdx?" done":""))}>
-          <span class="cl-dot" style=${{background:node.color,boxShadow:`0 0 6px ${node.color}`}}></span>${node.label}
-        </span>
-      </${React.Fragment}>`)}
+    <div class="cl-head">
+      <span class="cl-jp">接続</span>
+      <span class="cl-title">${title}</span>
+      <span class=${"cl-jp"+(flowing?" act":"")}>${flowing?"通信中":"待機"}</span>
     </div>
+    <svg class="cl-svg" viewBox="0 0 608 96" preserveAspectRatio="xMidYMid meet">
+      ${[0,1,2,3,4].map(i=>{const d=clEdge(i);const fl=flowing?" flow":"";
+        return html`<${React.Fragment} key=${"e"+i}>
+          <path d=${d} class="cl-line"/>
+          <path d=${d} class=${"cl-lava"+fl}/>
+          <path d=${d} class=${"cl-spark"+fl}/>
+        </${React.Fragment}>`;})}
+      ${CL_NODES.map((nd,i)=>{const r=route[i];
+        const ya=nd.below?nd.y+15:nd.y-19, yb=nd.below?nd.y+25:nd.y-9;
+        return html`<${React.Fragment} key=${"n"+i}>
+          <circle cx=${nd.x} cy=${nd.y} r=${11} class="cl-halo" fill=${r.color} opacity=${i===activeIdx?0.45:0.16}/>
+          <circle cx=${nd.x} cy=${nd.y} r=${4.5} class=${"cl-dot2"+(i===activeIdx?" active":"")}
+            fill=${r.color} stroke="#02060a" stroke-width=${1}/>
+          <text x=${nd.x} y=${ya} class="cl-lbl main">${r.main}</text>
+          <text x=${nd.x} y=${yb} class="cl-lbl sub">${r.sub}</text>
+        </${React.Fragment}>`;})}
+    </svg>
   </div>`;
 }
 
@@ -368,6 +414,9 @@ function App(){
   const [metrics,setMetrics]=useState(null);
   const [status,setStatus]=useState("");
   const [started,setStarted]=useState(false);
+  // the two substrates this circuit happens to ride — re-rolled each loop (unlinkable rotation flavour)
+  const [subPair,setSubPair]=useState([MIXNETS[0],MIXNETS[1]]);
+  const prevPhase=useRef("");
   const wsRef=useRef(null);
 
   useEffect(()=>{const b=document.getElementById("boot");if(b)b.style.display="none";},[]);
@@ -406,13 +455,34 @@ function App(){
   const fmtBps=v=>v?(v/1e6>=1?(v/1e6).toFixed(2)+" mb/s":(v/1e3).toFixed(0)+" kb/s"):"–";
 
   // route legend + globe dimming: surface the legend (and dim the globe a touch) once traffic is on the tunnel
-  const path=useMemo(()=>buildPath(gwIndex,live),[gwIndex,live]);
   const sending = phase==="connect"||phase==="traverse"||phase==="hold";
   const connVisible = started && (live || sending);
-  const connTitle = live ? "live circuit · streaming"
-    : phase==="connect" ? "tunnel established · opening circuit"
-    : phase==="traverse" ? "request in flight over tunnel"
-    : "awaiting reply via surbs";
+  // re-roll the two substrates this circuit rides at the top of each demo loop
+  useEffect(()=>{
+    if(phase==="dial" && prevPhase.current!=="dial"){
+      const a=Math.floor(Math.random()*MIXNETS.length);
+      let b=Math.floor(Math.random()*(MIXNETS.length-1)); if(b>=a)b++;
+      setSubPair([MIXNETS[a],MIXNETS[b]]);
+    }
+    prevPhase.current=phase;
+  },[phase]);
+  const prog = live ? Math.min(1,Math.max(0,liveProg.current)) : n/6;
+  const flowing = phase==="traverse" || (live && prog>0 && prog<1);
+  const subColor=id=>COLORS[id]||"#5cff9a";
+  const route=[
+    {color:"#dffff0",          main:"your laptop",     sub:"client"},
+    {color:"#52ff8f",          main:"quicnet",         sub:"quic ingress"},
+    {color:subColor(subPair[0].id), main:subPair[0].label, sub:"substrate"},
+    {color:subColor(subPair[1].id), main:subPair[1].label, sub:"substrate"},
+    {color:COLORS.gateway,     main:"quicmix",         sub:"gateway"},
+    {color:COLORS.origin,      main:"example.com",     sub:"origin"},
+  ];
+  const routeActive = Math.round(prog*(route.length-1));
+  const connTitle = live ? "live circuit · packets in transit"
+    : phase==="connect" ? "secure tunnel established"
+    : phase==="traverse" ? "request in flight · constant cell rate"
+    : phase==="hold" ? "holding · reply via reply-surbs"
+    : "negotiating circuit";
   const dim = !started ? 0.45 : ((live||sending) ? 0.28 : 0);
 
   return html`<${React.Fragment}>
@@ -440,7 +510,7 @@ function App(){
       </div>
 
       ${started?html`<${React.Fragment}>
-      <${ConnectionLegend} path=${path} activeIdx=${n} visible=${connVisible} title=${connTitle}/>
+      <${ConnectionLegend} route=${route} activeIdx=${routeActive} visible=${connVisible} flowing=${flowing} title=${connTitle}/>
 
       <div class="frame ctl widget">
         <h4>fetch a real load · gateway droplet</h4>
