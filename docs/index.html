@@ -269,8 +269,10 @@ import htm from "htm";
 const html = htm.bind(React.createElement);
 
 const R = 2, LIFT = 0.42;
-// optional: deploy quicmix-bridge and set this to its wss url to go live.
-const BRIDGE = "wss://64.226.93.43.nip.io/";
+// the bounce iframe loader on the gateway droplet (quicmix-bounce, behind caddy). it re-serves the
+// requested page without X-Frame-Options / frame-ancestors so the result iframe can embed it.
+// set to "" to embed the url directly (most sites will then refuse to be framed).
+const BOUNCE = "https://64.226.93.43.nip.io/bounce";
 
 const COLORS = { public:"#3ad17a", nym:"#ff9e3d", tor:"#9d7bff", katzenpost:"#2ee6c0", hopr:"#ffd23f",
                  gateway:"#38e1ff", origin:"#ffffff", rail:"#3b82f6" };
@@ -667,8 +669,9 @@ function App(){
         title=${connTitle} cls=${stage==="loaded"?"loaded":""}/>
 
       ${stage==="loaded"?html`<div class="result">
-        <div class="result-bar"><span>delivered through <b>${GATEWAYS[gwIndex].provider}</b></span><span class="rb-url">${target}</span></div>
-        <iframe class="resultframe" src=${target} title="requested page"
+        <div class="result-bar"><span>delivered through <b>${GATEWAYS[gwIndex].provider}</b></span>
+          <a class="rb-url" href=${target} target="_blank" rel="noopener noreferrer">${target} ↗</a></div>
+        <iframe class="resultframe" src=${BOUNCE?(BOUNCE+"?url="+encodeURIComponent(target)+"&gateway="+GATEWAYS[gwIndex].id):target} title="requested page"
           sandbox="allow-scripts allow-same-origin allow-popups allow-forms" referrerpolicy="no-referrer"></iframe>
       </div>`:null}
 
