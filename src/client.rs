@@ -58,6 +58,13 @@ pub fn bdp_bytes(p: &OracleParams) -> u64 {
     }
 }
 
+/// One BDP expressed in **packets** (floored at 16) — the single source of truth for
+/// sizing a bounded egress/relay queue from the oracle (used by the relay boundary
+/// and the demo/bench harnesses), so the BDP-depth rule lives in exactly one place.
+pub fn bdp_packets(p: &OracleParams) -> usize {
+    (bdp_bytes(p) / p.mtu.max(1) as u64).max(16) as usize
+}
+
 /// The congestion plan — the client-side plug for "how to drive QUIC's CC".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Congestion {
@@ -67,6 +74,26 @@ pub enum Congestion {
     Timers,
     /// quicmix: BDP window + loss ignored as congestion + tolerant timers.
     Quicmix,
+}
+
+/// The reorder/jitter-tolerant base `TransportConfig`, shared by every non-`Stock`
+/// plan. Tolerance is derived from the *measured* mix model, so a merely-delayed
+/// packet isn't read as a drop (the spurious-retransmit problem) while real drops are
+/// still recovered. `time_threshold` scales with the path's jitter (hops/delay) —
+/// dynamic, not a magic constant; going to "never" would stall on the real drop rate.
+/// Real mixnet RTTs are *seconds* (Nym mainnet p50 ≈ 2.8 s measured by `realprobe`)
+/// and a session is many round-trips, so the idle timeout is kept far above one RTT
+/// (≥ 30 s, so the ms-scale emulator is unaffected) to avoid idling out mid-session.
+fn tolerant(p: &OracleParams, time_threshold: f32) -> TransportConfig {
+    let mut t = TransportConfig::default();
+    t.initial_rtt(p.rtt());
+    t.packet_threshold(1000);
+    t.time_threshold(time_threshold);
+    let idle = std::cmp::max(Duration::from_secs(30), p.rtt() * 40);
+    if let Ok(t_idle) = IdleTimeout::try_from(idle) {
+        t.max_idle_timeout(Some(t_idle));
+    }
+    t
 }
 
 impl Congestion {
@@ -80,57 +107,23 @@ impl Congestion {
 
     /// Build a quinn `TransportConfig` for this plan against `p`.
     pub fn transport(self, p: &OracleParams) -> Arc<TransportConfig> {
-        let mut t = TransportConfig::default();
-        let tolerant = |t: &mut TransportConfig| {
-            // Reorder/jitter tolerance derived from the *measured* mix model, so a
-            // merely-delayed packet isn't read as a drop (the spurious-retransmit
-            // problem) while real drops are still recovered. `loss_time_threshold`
-            // scales with the path's jitter (hops/delay) — dynamic, not a magic
-            // constant; going to "never" would stall on the real drop rate.
-            t.initial_rtt(p.rtt());
-            t.packet_threshold(1000);
-            t.time_threshold(p.loss_time_threshold());
-            // Real mixnet RTTs are *seconds* (Nym mainnet p50 ≈ 2.8 s measured by
-            // `realprobe`), and a session is many round-trips. Keep the connection
-            // alive far longer than one RTT so it doesn't idle out mid-session.
-            // Floored at 30 s so the ms-scale emulator is unaffected (its transfers
-            // finish in well under that).
-            let idle = std::cmp::max(Duration::from_secs(30), p.rtt() * 40);
-            if let Ok(t_idle) = IdleTimeout::try_from(idle) {
-                t.max_idle_timeout(Some(t_idle));
-            }
-        };
         match self {
-            Congestion::Stock => {}
-            Congestion::Timers => tolerant(&mut t),
-            Congestion::Quicmix => {
-                tolerant(&mut t);
-                t.congestion_controller_factory(Arc::new(OracleCc {
-                    window: bdp_bytes(p),
-                }));
-            }
+            Congestion::Stock => Arc::new(TransportConfig::default()),
+            Congestion::Timers => Arc::new(tolerant(p, p.loss_time_threshold())),
+            Congestion::Quicmix => quicmix_transport_with_jitter(p, 0.0),
         }
-        Arc::new(t)
     }
 }
 
-/// Build the oracle-fed `Quicmix` transport but with an explicit, **measured**
-/// loss-detection threshold (a jitter percentile ratio from real RTTs) instead of
-/// the hops-derived structural default. `jitter < 1.5` falls back to the structural
-/// threshold (too few samples to trust). Used to rebuild a circuit's transport from
-/// the latest measured oracle on rotation.
+/// Build the oracle-fed `Quicmix` transport (tolerant timers + the BDP-windowed
+/// [`OracleCc`]) with an explicit, **measured** loss-detection threshold (a jitter
+/// percentile ratio from real RTTs). `jitter < 1.5` falls back to the hops-derived
+/// structural default (too few samples to trust). Used to rebuild a circuit's
+/// transport from the latest measured oracle on rotation.
 pub fn quicmix_transport_with_jitter(p: &OracleParams, jitter: f32) -> Arc<TransportConfig> {
-    let mut t = TransportConfig::default();
-    t.initial_rtt(p.rtt());
-    t.packet_threshold(1000);
-    t.time_threshold(if jitter >= 1.5 { jitter } else { p.loss_time_threshold() });
-    let idle = std::cmp::max(Duration::from_secs(30), p.rtt() * 40);
-    if let Ok(t_idle) = IdleTimeout::try_from(idle) {
-        t.max_idle_timeout(Some(t_idle));
-    }
-    t.congestion_controller_factory(Arc::new(OracleCc {
-        window: bdp_bytes(p),
-    }));
+    let threshold = if jitter >= 1.5 { jitter } else { p.loss_time_threshold() };
+    let mut t = tolerant(p, threshold);
+    t.congestion_controller_factory(Arc::new(OracleCc { window: bdp_bytes(p) }));
     Arc::new(t)
 }
 

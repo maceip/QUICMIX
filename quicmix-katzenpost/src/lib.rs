@@ -61,6 +61,20 @@ pub struct SendMessage {
     pub payload: Vec<u8>,
 }
 
+impl SendMessage {
+    /// A `SendMessage` to `service` carrying `payload`, with a reply SURB (a fresh
+    /// `surbid`) attached so the service can route its reply back to us.
+    fn with_reply_surb(service: &Service, payload: Vec<u8>) -> Self {
+        Self {
+            with_surb: true,
+            surbid: Some(instance_token()),
+            destination_id_hash: service.destination_id_hash,
+            recipient_queue_id: service.recipient_queue_id.clone(),
+            payload,
+        }
+    }
+}
+
 #[derive(Deserialize, Default)]
 pub struct Response {
     #[serde(rename = "connection_status_event", default)]
@@ -143,6 +157,17 @@ async fn read_frame<R: AsyncReadExt + Unpin>(r: &mut R) -> anyhow::Result<Respon
     let mut buf = vec![0u8; n];
     r.read_exact(&mut buf).await?;
     Ok(ciborium::from_reader(&buf[..])?)
+}
+
+/// Read frames until the next `MessageReplyEvent`, ignoring intervening
+/// status/PKI/ack events. Only one request is ever in flight, so the first reply
+/// is ours.
+async fn read_until_reply<R: AsyncReadExt + Unpin>(r: &mut R) -> anyhow::Result<MessageReplyEvent> {
+    loop {
+        if let Some(ev) = read_frame(r).await?.message_reply_event {
+            return Ok(ev);
+        }
+    }
 }
 
 /// Katzenpost's `hash.Sum256` — blake2b with a 32-byte digest.
@@ -299,34 +324,21 @@ pub async fn request_reply(
     write_frame(
         &mut stream,
         &Request {
-            send_message: Some(SendMessage {
-                with_surb: true,
-                surbid: Some(instance_token()),
-                destination_id_hash: service.destination_id_hash,
-                recipient_queue_id: service.recipient_queue_id.clone(),
-                payload,
-            }),
+            send_message: Some(SendMessage::with_reply_surb(&service, payload)),
             ..Default::default()
         },
     )
     .await?;
 
-    // Wait for the reply (ignoring sent-acks / PKI updates). Only one request is in
-    // flight, so the first MessageReplyEvent is ours.
-    let reply = tokio::time::timeout(timeout, async {
-        loop {
-            let resp = read_frame(&mut stream).await?;
-            if let Some(ev) = resp.message_reply_event {
-                return Ok::<_, anyhow::Error>(Reply {
-                    error_code: ev.error_code,
-                    payload: ev.payload,
-                });
-            }
-        }
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("no MessageReplyEvent within {timeout:?}"))??;
+    // Wait for the reply (ignoring sent-acks / PKI updates), bounded by `timeout`.
+    let ev = tokio::time::timeout(timeout, read_until_reply(&mut stream))
+        .await
+        .map_err(|_| anyhow::anyhow!("no MessageReplyEvent within {timeout:?}"))??;
 
+    let reply = Reply {
+        error_code: ev.error_code,
+        payload: ev.payload,
+    };
     Ok((service, reply))
 }
 
@@ -417,13 +429,7 @@ impl MixTransport for KatzenpostSubstrate {
 
     async fn try_send(&self, datagram: Vec<u8>) -> Result<(), SubstrateError> {
         let req = Request {
-            send_message: Some(SendMessage {
-                with_surb: true,
-                surbid: Some(instance_token()),
-                destination_id_hash: self.service.destination_id_hash,
-                recipient_queue_id: self.service.recipient_queue_id.clone(),
-                payload: datagram,
-            }),
+            send_message: Some(SendMessage::with_reply_surb(&self.service, datagram)),
             ..Default::default()
         };
         let mut w = self.write.lock().await;
@@ -435,14 +441,11 @@ impl MixTransport for KatzenpostSubstrate {
 
     async fn try_recv(&self) -> Result<Vec<u8>, SubstrateError> {
         let mut r = self.read.lock().await;
-        loop {
-            // A read failure on the daemon socket = Closed (e.g. daemon shut down).
-            let resp = read_frame(&mut *r).await.map_err(|_| SubstrateError::Closed)?;
-            if let Some(ev) = resp.message_reply_event {
-                return Ok(ev.payload);
-            }
-            // Non-reply events (status/PKI/acks) — keep reading.
-        }
+        // A read failure on the daemon socket = Closed (e.g. daemon shut down).
+        read_until_reply(&mut *r)
+            .await
+            .map(|ev| ev.payload)
+            .map_err(|_| SubstrateError::Closed)
     }
 }
 

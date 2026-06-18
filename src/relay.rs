@@ -7,9 +7,9 @@
 //! the relay exercises the production substrate boundary, not a raw `send`. The
 //! returned [`Relay`] exposes the per-direction handles for metrics.
 
-use crate::client::bdp_bytes;
+use crate::client::bdp_packets;
 use crate::substrate::Substrate;
-use crate::{MixTransport, OracleParams};
+use crate::MixTransport;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
@@ -25,11 +25,6 @@ pub struct Relay {
     pub down: Arc<Substrate>,
 }
 
-/// Bound queue depth (datagrams) from the oracle's BDP — not an arbitrary constant.
-fn bdp_depth(p: &OracleParams) -> usize {
-    (bdp_bytes(p) / p.mtu.max(1) as u64).max(16) as usize
-}
-
 /// Start a relay forwarding between a (to-be-learned) client and `server_addr`,
 /// applying `up` to client→server datagrams and `down` to server→client. Each
 /// direction is wrapped in a paced/fallible [`Substrate`].
@@ -38,9 +33,10 @@ pub async fn start_relay(
     up: Arc<dyn MixTransport>,
     down: Arc<dyn MixTransport>,
 ) -> std::io::Result<Relay> {
-    // Queue depth from each direction's BDP.
-    let up = Substrate::new(up.clone(), bdp_depth(&up.oracle()));
-    let down = Substrate::new(down.clone(), bdp_depth(&down.oracle()));
+    // Queue depth from each direction's BDP (the shared [`bdp_packets`] rule), not
+    // an arbitrary constant.
+    let up = Substrate::new(up.clone(), bdp_packets(&up.oracle()));
+    let down = Substrate::new(down.clone(), bdp_packets(&down.oracle()));
 
     let front = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
     let back = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);

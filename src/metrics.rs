@@ -114,39 +114,33 @@ impl Snapshot {
         fn u(v: u64) -> String { v.to_string() }
         fn f(v: f64) -> String { format!("{v}") }
 
-        // (name, help, value) for each metric class.
-        let counters: [(&str, &str, String); 11] = [
-            ("substrate_sent_total", "datagrams handed to the inner substrate", u(self.substrate_sent_total)),
-            ("substrate_recv_total", "datagrams received from the inner substrate", u(self.substrate_recv_total)),
-            ("substrate_send_errors_total", "inner-substrate send failures (typed SubstrateError)", u(self.substrate_send_errors_total)),
-            ("substrate_dropped_total", "datagrams dropped by the lossy send path under backpressure", u(self.substrate_dropped_total)),
-            ("quic_sent_packets_total", "QUIC packets sent across live circuits", u(self.quic_sent_packets_total)),
-            ("quic_lost_packets_total", "QUIC packets declared lost (the retransmission trigger)", u(self.quic_lost_packets_total)),
-            ("quic_lost_bytes_total", "QUIC bytes in lost packets (the volume retransmitted)", u(self.quic_lost_bytes_total)),
-            ("quic_congestion_events_total", "QUIC congestion events across live circuits", u(self.quic_congestion_events_total)),
-            ("circuits_built_total", "circuits ever built (pre-warm + refill + rotation)", u(self.circuits_built_total)),
-            ("circuits_retired_total", "circuits retired into draining for rotation/age/use", u(self.circuits_retired_total)),
-            ("circuits_build_errors_total", "failed circuit builds during refill", u(self.circuits_build_errors_total)),
-        ];
-        let gauges: [(&str, &str, String); 7] = [
-            ("substrate_queue_depth", "current paced send-queue depth", u(self.substrate_queue_depth)),
-            ("substrate_enqueue_latency_us", "age (microseconds) of the most-recently-sent queued datagram", u(self.substrate_enqueue_latency_us)),
-            ("circuits_ready", "warm, non-draining circuits ready to serve", u(self.circuits_ready)),
-            ("oracle_rtt_p50_seconds", "measured RTT median", f(self.oracle_rtt_p50_seconds)),
-            ("oracle_rtt_p90_seconds", "measured RTT 90th percentile", f(self.oracle_rtt_p90_seconds)),
-            ("oracle_rtt_p99_seconds", "measured RTT 99th percentile", f(self.oracle_rtt_p99_seconds)),
-            ("quic_loss_ratio", "lost/sent packets across live circuits", f(self.loss_ratio())),
+        // (kind, name, help, value) for every metric — the set of names here **is**
+        // the observability contract.
+        let metrics: [(&str, &str, &str, String); 18] = [
+            ("counter", "substrate_sent_total", "datagrams handed to the inner substrate", u(self.substrate_sent_total)),
+            ("counter", "substrate_recv_total", "datagrams received from the inner substrate", u(self.substrate_recv_total)),
+            ("counter", "substrate_send_errors_total", "inner-substrate send failures (typed SubstrateError)", u(self.substrate_send_errors_total)),
+            ("counter", "substrate_dropped_total", "datagrams dropped by the lossy send path under backpressure", u(self.substrate_dropped_total)),
+            ("counter", "quic_sent_packets_total", "QUIC packets sent across live circuits", u(self.quic_sent_packets_total)),
+            ("counter", "quic_lost_packets_total", "QUIC packets declared lost (the retransmission trigger)", u(self.quic_lost_packets_total)),
+            ("counter", "quic_lost_bytes_total", "QUIC bytes in lost packets (the volume retransmitted)", u(self.quic_lost_bytes_total)),
+            ("counter", "quic_congestion_events_total", "QUIC congestion events across live circuits", u(self.quic_congestion_events_total)),
+            ("counter", "circuits_built_total", "circuits ever built (pre-warm + refill + rotation)", u(self.circuits_built_total)),
+            ("counter", "circuits_retired_total", "circuits retired into draining for rotation/age/use", u(self.circuits_retired_total)),
+            ("counter", "circuits_build_errors_total", "failed circuit builds during refill", u(self.circuits_build_errors_total)),
+            ("gauge", "substrate_queue_depth", "current paced send-queue depth", u(self.substrate_queue_depth)),
+            ("gauge", "substrate_enqueue_latency_us", "age (microseconds) of the most-recently-sent queued datagram", u(self.substrate_enqueue_latency_us)),
+            ("gauge", "circuits_ready", "warm, non-draining circuits ready to serve", u(self.circuits_ready)),
+            ("gauge", "oracle_rtt_p50_seconds", "measured RTT median", f(self.oracle_rtt_p50_seconds)),
+            ("gauge", "oracle_rtt_p90_seconds", "measured RTT 90th percentile", f(self.oracle_rtt_p90_seconds)),
+            ("gauge", "oracle_rtt_p99_seconds", "measured RTT 99th percentile", f(self.oracle_rtt_p99_seconds)),
+            ("gauge", "quic_loss_ratio", "lost/sent packets across live circuits", f(self.loss_ratio())),
         ];
 
         let mut out = String::new();
-        for (name, help, val) in counters {
+        for (kind, name, help, val) in metrics {
             let _ = writeln!(out, "# HELP {name} {help}");
-            let _ = writeln!(out, "# TYPE {name} counter");
-            let _ = writeln!(out, "{name} {val}");
-        }
-        for (name, help, val) in gauges {
-            let _ = writeln!(out, "# HELP {name} {help}");
-            let _ = writeln!(out, "# TYPE {name} gauge");
+            let _ = writeln!(out, "# TYPE {name} {kind}");
             let _ = writeln!(out, "{name} {val}");
         }
         out

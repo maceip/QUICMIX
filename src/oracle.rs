@@ -61,14 +61,21 @@ impl OracleEstimator {
         self.rtt_ns.len()
     }
 
+    /// The RTT samples, sorted ascending (empty if none observed yet). The shared
+    /// basis for every percentile/median below.
+    fn sorted(&self) -> Vec<u128> {
+        let mut v = self.rtt_ns.clone();
+        v.sort_unstable();
+        v
+    }
+
     /// (p50, p90, p99) of the observed RTT distribution — the measured spread the
     /// observability layer exports and the loss timer is derived from.
     pub fn rtt_percentiles(&self) -> (Duration, Duration, Duration) {
-        if self.rtt_ns.is_empty() {
+        let v = self.sorted();
+        if v.is_empty() {
             return (Duration::ZERO, Duration::ZERO, Duration::ZERO);
         }
-        let mut v = self.rtt_ns.clone();
-        v.sort_unstable();
         let pick = |q: f64| -> Duration {
             let idx = (((v.len() - 1) as f64) * q).round() as usize;
             Duration::from_nanos(v[idx] as u64)
@@ -86,12 +93,12 @@ impl OracleEstimator {
 
     /// Median observed RTT in nanoseconds (robust to mix-delay outliers).
     fn median_rtt_ns(&self) -> u128 {
-        if self.rtt_ns.is_empty() {
-            return 0;
+        let v = self.sorted();
+        if v.is_empty() {
+            0
+        } else {
+            v[v.len() / 2]
         }
-        let mut v = self.rtt_ns.clone();
-        v.sort_unstable();
-        v[v.len() / 2]
     }
 
     /// Model-free jitter ratio (a high RTT percentile / median) — a measured
@@ -100,8 +107,7 @@ impl OracleEstimator {
         if self.rtt_ns.len() < 2 {
             return 0.0;
         }
-        let mut v = self.rtt_ns.clone();
-        v.sort_unstable();
+        let v = self.sorted();
         let med = v[v.len() / 2] as f32;
         let idx = ((v.len() as f32 * 0.999) as usize).min(v.len() - 1);
         let p999 = v[idx] as f32;

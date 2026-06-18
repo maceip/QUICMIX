@@ -186,7 +186,7 @@ impl HoprSubstrate {
     }
 
     /// Pop one HOPR message body string for our tag. `Ok(None)` = empty inbox
-    /// (404/204); auth/server errors surface as typed errors.
+    /// (404/204); auth/server errors surface as typed errors (same mapping as send).
     async fn pop_typed(&self) -> Result<Option<String>, SubstrateError> {
         let resp = self
             .http
@@ -197,19 +197,10 @@ impl HoprSubstrate {
             .await
             .map_err(map_reqwest)?;
         let st = resp.status();
-        let c = st.as_u16();
-        if c == 404 || c == 204 {
+        if matches!(st.as_u16(), 404 | 204) {
             return Ok(None); // empty inbox is not an error
         }
-        if c == 401 || c == 403 {
-            return Err(SubstrateError::AuthFailed);
-        }
-        if st.is_server_error() {
-            return Err(SubstrateError::RemoteRejected);
-        }
-        if !st.is_success() {
-            return Err(SubstrateError::Io(format!("hopr HTTP {c}")));
-        }
+        status_to_result(st)?;
         let pr = resp
             .json::<PopResponse>()
             .await

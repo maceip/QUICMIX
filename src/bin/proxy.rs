@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
         slot_interval: Duration::from_millis(1),
         mtu: 1200,
     };
-    let buf = ((quicmix::client::bdp_bytes(&p) / p.mtu as u64) as usize).max(16);
+    let buf = quicmix::client::bdp_packets(&p);
 
     // Origin "website".
     let origin = TcpListener::bind("127.0.0.1:0").await?;

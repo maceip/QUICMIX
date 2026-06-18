@@ -9,7 +9,7 @@ for**, and **real captured output** from an actual run. Two tiers:
   2026-06-18. Numbers (timings/goodput) vary run-to-run; the *shape* is stable.
 - **Tier 2 — live networks.** Hit real Nym / Tor / Katzenpost / HOPR. Need open
   egress and (Katzenpost/HOPR) a reachable node. Captured output is the dated,
-  attributed record from `REAL_RESULTS.md` (open-egress laptop, 2026-06-16).
+  attributed record from `results.md` (open-egress laptop, 2026-06-16).
 
 Run Tier 1 in CI; run Tier 2 on a laptop with egress when validating a substrate.
 
@@ -107,7 +107,7 @@ cargo run --bin rotate
 - **Look for:** a warm pool pre-warms; warm rotation is faster than cold (emulator
   speedup ≈ 3×); one session id carried across **2 circuits** with **2 distinct
   source addresses** and no shared keys/resumption ticket. (The warm speedup is an
-  *emulator* property — `REAL_RESULTS.md` T4 records that it does **not** hold on
+  *emulator* property — `results.md` T4 records that it does **not** hold on
   real Nym, where multi-second mix RTT dominates. Unlinkability holds on both.)
 - **Captured:**
 
@@ -170,7 +170,7 @@ round-robin (both)           0.72
 ## Tier 2 — live-network E2E
 
 These need open egress; Katzenpost/HOPR additionally need a reachable node. The
-captured output is the dated record in `REAL_RESULTS.md` (2026-06-16). First build
+captured output is the dated record in `results.md` (2026-06-16). First build
 of a substrate crate compiles a large tree (`nym-sdk` / `arti-client`) — minutes,
 once; the core `quicmix` build never pulls them (isolated crates).
 
@@ -188,7 +188,7 @@ cargo run --manifest-path quicmix-nym/Cargo.toml --bin nym_rotate # unlinkable r
 - **Look for:** a QUIC connection *established over Nym*; an HTTP fetch returned
   through the mix; quicmix CC produces **0** spurious retransmits where stock CUBIC
   produces ≥1; rotation carries one session over two fresh Nym identities.
-- **Captured (REAL_RESULTS.md T1/T2/T4):**
+- **Captured (`results.md` T1/T2/T4):**
 
 ```
 realprobe: 30/30 returned (0% loss)  RTT p50 2823 ms  p90 4598 ms  6.3 msg/s
@@ -217,7 +217,7 @@ quicmix/scripts/real-tor.sh 1.1.1.1:80
 - **Look for:** a real bootstrap + circuit + first-byte RTT; a confirmed Tor exit.
   Tor is a **stream** substrate — quicmix's datagram CC is a documented no-op there
   (the "slow leg"); the binding still runs a real circuit and measures it.
-- **Captured (REAL_RESULTS.md T1):**
+- **Captured (`results.md` T1):**
 
 ```
 torprobe: bootstrap 160 s   stream connect 13.4 s   first-byte RTT 677 ms
@@ -236,7 +236,7 @@ cargo run --manifest-path quicmix-katzenpost/Cargo.toml --bin kp_echo   # SendMe
 - **Timeout bound:** 2 min once the testnet is up.
 - **Look for:** the daemon delivers a real PKI document; an echo round-trip through
   the mix completes (real CBOR thin-client schema, not a stub).
-- **Captured (REAL_RESULTS.md T5):**
+- **Captured (`results.md` T5):**
 
 ```
 kp_probe: daemon connected; 27394-byte PKI doc delivered

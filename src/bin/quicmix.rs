@@ -13,7 +13,7 @@
 //! Run: `cargo run --manifest-path quicmix/Cargo.toml --bin quicmix`
 
 use anyhow::Result;
-use quicmix::client::bdp_bytes;
+use quicmix::client::bdp_packets;
 use quicmix::emulator::EmulatedMixnet;
 use quicmix::node::Node;
 use quicmix::relay::start_relay;
@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
     let (_b_ep, b_gateway_addr) = node_b.serve_gateway().await?;
 
     // Mix substrate (emulator) between A and B's gateway.
-    let buf = ((bdp_bytes(&p) / p.mtu as u64) as usize).max(16);
+    let buf = bdp_packets(&p);
     let relay = start_relay(
         b_gateway_addr,
         std::sync::Arc::new(EmulatedMixnet::with_queue(p, buf)),

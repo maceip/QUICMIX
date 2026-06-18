@@ -116,11 +116,8 @@ async fn proxy<C: AsRef<Connection> + Send + 'static>(
             return Ok(status(StatusCode::BAD_REQUEST, "CONNECT requires host:port"));
         };
         tokio::spawn(async move {
-            match hyper::upgrade::on(req).await {
-                Ok(upgraded) => {
-                    let _ = tunnel(upgraded, authority, conn).await;
-                }
-                Err(_) => {}
+            if let Ok(upgraded) = hyper::upgrade::on(req).await {
+                let _ = tunnel(upgraded, authority, conn).await;
             }
         });
         // 200 with empty body == "Connection Established".

@@ -13,7 +13,7 @@
 //! Usage: `cargo run --manifest-path quicmix/Cargo.toml --bin bench -- [MB]`
 
 use anyhow::Result;
-use quicmix::client::{bdp_bytes, Congestion};
+use quicmix::client::{bdp_packets, Congestion};
 use quicmix::{emulator::EmulatedMixnet, relay::start_relay, OracleParams};
 use quinn::{ClientConfig, Endpoint, ServerConfig};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -25,11 +25,6 @@ fn make_cert() -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>)> {
     let cert = c.cert.der().clone();
     let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(c.key_pair.serialize_der()));
     Ok((cert, key))
-}
-
-/// Egress buffer size (packets) ≈ one BDP — a classic single-bottleneck buffer.
-fn buffer_packets(p: &OracleParams) -> usize {
-    ((bdp_bytes(p) / p.mtu as u64) as usize).max(16)
 }
 
 struct Sample {
@@ -62,9 +57,10 @@ async fn run_once(cc: Congestion, payload_len: usize, p: OracleParams) -> Result
         });
     }
 
-    // Mix relay (emulator) between client and server — finite egress buffers so
-    // overload causes load-dependent tail-drop, not free unbounded queueing.
-    let buf = buffer_packets(&p);
+    // Mix relay (emulator) between client and server — finite egress buffers
+    // (≈ one BDP, a classic single-bottleneck buffer) so overload causes
+    // load-dependent tail-drop, not free unbounded queueing.
+    let buf = bdp_packets(&p);
     let front_addr = start_relay(
         server_addr,
         std::sync::Arc::new(EmulatedMixnet::with_queue(p, buf)),

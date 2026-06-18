@@ -133,7 +133,7 @@ pub async fn spawn_client_bridge(
 ) -> anyhow::Result<(SocketAddr, Arc<Substrate>)> {
     // Wrap the Nym substrate in the paced/fallible boundary; BDP-sized queue.
     let oracle = substrate.oracle();
-    let depth = (quicmix::client::bdp_bytes(&oracle) / oracle.mtu.max(1) as u64).max(16) as usize;
+    let depth = quicmix::client::bdp_packets(&oracle);
     let sub = Substrate::new(substrate, depth);
 
     let front = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
@@ -268,9 +268,7 @@ impl NymGateway {
                         // through the paced/backpressured/counted Substrate boundary,
                         // not a raw send_reply. Same BDP-sized queue as the other legs.
                         let oracle = nym_oracle();
-                        let depth = (quicmix::client::bdp_bytes(&oracle)
-                            / oracle.mtu.max(1) as u64)
-                            .max(16) as usize;
+                        let depth = quicmix::client::bdp_packets(&oracle);
                         let reply = Substrate::new(
                             Arc::new(NymReplyTransport { sender: sender.clone(), tag, oracle }),
                             depth,

@@ -253,7 +253,7 @@ impl WarmPool {
                 // connection can't dominate with a fresh sample every tick.
                 if let Some(m) = &self.measured {
                     for s in slots.iter_mut() {
-                        let due = s.last_sampled.map_or(true, |t| now.duration_since(t) >= SAMPLE_EVERY);
+                        let due = s.last_sampled.is_none_or(|t| now.duration_since(t) >= SAMPLE_EVERY);
                         if due && s.circuit.conn.close_reason().is_none() {
                             m.observe(&s.circuit.conn);
                             s.last_sampled = Some(now);

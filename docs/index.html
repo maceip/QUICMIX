@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>quicmix // mixnet trace</title>
+<meta name="description" content="a wargames-style 3d trace of an http request crossing a metadata-private mixnet over quic" />
+<style>
+  :root{
+    --p:#52ff8f;        /* phosphor green */
+    --p-dim:#1f6b3f;
+    --amber:#ffb53d;    /* active / alert */
+    --cyan:#7df9ff;
+    --bg:#02060a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;
+    font-family:"SFMono-Regular",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;color:var(--p)}
+  #root{position:fixed;inset:0}
+  canvas{display:block;touch-action:none}
+
+  .crt{position:fixed;inset:0;pointer-events:none;z-index:5;mix-blend-mode:screen}
+  .crt::before{content:"";position:absolute;inset:0;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,0) 0,rgba(0,0,0,0) 2px,rgba(0,0,0,.22) 3px,rgba(0,0,0,0) 4px);
+    opacity:.5}
+  .vig{position:fixed;inset:0;pointer-events:none;z-index:4;
+    background:radial-gradient(ellipse at center,rgba(0,0,0,0) 48%,rgba(0,0,0,.78) 100%)}
+
+  .hud{position:fixed;inset:0;pointer-events:none;z-index:6;
+    text-shadow:0 0 6px rgba(82,255,143,.55);letter-spacing:.04em}
+  .frame{position:absolute;border:1px solid var(--p-dim);
+    background:linear-gradient(180deg,rgba(82,255,143,.05),rgba(0,0,0,.18))}
+  .top{top:14px;left:14px;right:14px;height:42px;display:flex;align-items:center;
+    justify-content:space-between;padding:0 14px;font-size:13px;text-transform:uppercase}
+  .top b{color:var(--p);font-weight:700}
+  .top .defcon{color:var(--amber)}
+  .blink{animation:blink 1.1s steps(2,start) infinite}
+  @keyframes blink{to{opacity:0}}
+
+  .panel{left:14px;bottom:14px;width:min(420px,calc(100% - 28px));padding:14px 16px}
+  .panel .lbl{font-size:11px;color:var(--p-dim);text-transform:uppercase;letter-spacing:.18em}
+  .panel .step{font-size:20px;color:var(--amber);margin:4px 0 2px;text-transform:uppercase}
+  .panel .geo{font-size:12px;color:var(--cyan);margin-bottom:8px}
+  .panel .desc{font-size:13px;line-height:1.5;color:#bdffd4;min-height:3.2em}
+  .panel .meter{margin-top:10px;height:6px;background:rgba(82,255,143,.12);border:1px solid var(--p-dim)}
+  .panel .meter i{display:block;height:100%;background:var(--p);box-shadow:0 0 8px var(--p);width:0}
+
+  /* gateway selector — interactive, so it opts back into pointer events */
+  .gw{top:68px;right:14px;width:min(268px,calc(100% - 28px));padding:12px 14px;pointer-events:auto}
+  .gw h4{margin:0 0 9px;font-size:11px;color:var(--p-dim);text-transform:uppercase;letter-spacing:.18em}
+  .gw button{display:block;width:100%;text-align:left;margin:6px 0;padding:8px 10px;cursor:pointer;
+    font:inherit;color:#bdffd4;background:rgba(82,255,143,.04);border:1px solid var(--p-dim);
+    transition:all .12s ease;letter-spacing:.03em}
+  .gw button:hover{background:rgba(82,255,143,.12);color:var(--p)}
+  .gw button.on{border-color:var(--amber);color:var(--amber);background:rgba(255,181,61,.10);
+    box-shadow:0 0 10px rgba(255,181,61,.25)}
+  .gw button .r{display:flex;justify-content:space-between;font-size:13px}
+  .gw button .ip{font-size:11px;color:var(--p-dim);margin-top:2px}
+  .gw button.on .ip{color:#d9b87a}
+  .gw .note{margin-top:8px;font-size:10.5px;color:var(--p-dim);line-height:1.5}
+
+  .legend{right:14px;bottom:14px;width:min(240px,calc(100% - 28px));padding:12px 14px;font-size:12px}
+  .legend .row{display:flex;align-items:center;gap:8px;margin:5px 0;color:#bdffd4}
+  .legend .dot{width:9px;height:9px;border-radius:50%;box-shadow:0 0 6px currentColor}
+  .legend h4{margin:0 0 8px;font-size:11px;color:var(--p-dim);text-transform:uppercase;letter-spacing:.18em}
+
+  .nodelabel{font-size:11px;color:var(--p);white-space:nowrap;transform:translate(-50%,-160%);
+    text-shadow:0 0 6px rgba(0,0,0,.9);letter-spacing:.05em;pointer-events:none}
+  .nodelabel.active{color:var(--amber)}
+  .nodelabel .k{color:var(--p-dim)}
+
+  .boot{position:fixed;inset:0;z-index:9;background:var(--bg);display:flex;align-items:center;
+    justify-content:center;flex-direction:column;gap:10px;color:var(--p);font-size:14px}
+  .boot .bar{width:240px;height:8px;border:1px solid var(--p-dim)}
+  .boot .bar i{display:block;height:100%;width:30%;background:var(--p);box-shadow:0 0 8px var(--p);
+    animation:load 1.2s ease-in-out infinite alternate}
+  @keyframes load{to{width:92%}}
+  .err{max-width:520px;text-align:center;color:var(--amber);line-height:1.6;padding:0 20px}
+  a{color:var(--cyan)}
+  .hint{position:fixed;left:50%;bottom:6px;transform:translateX(-50%);z-index:6;font-size:11px;
+    color:var(--p-dim);pointer-events:none}
+</style>
+</head>
+<body>
+  <div id="root"></div>
+  <div class="boot" id="boot">
+    <div>quicmix // initializing mixnet trace</div>
+    <div class="bar"><i></i></div>
+    <div style="font-size:11px;color:var(--p-dim)">loading three · r3f · drei</div>
+  </div>
+  <div class="vig"></div>
+  <div class="crt"></div>
+  <div class="hint">drag to look · scroll to zoom · click globe to pause</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom": "https://esm.sh/react-dom@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+    "three": "https://esm.sh/three@0.160.1",
+    "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.19?deps=react@18.2.0,react-dom@18.2.0,three@0.160.1",
+    "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?deps=react@18.2.0,react-dom@18.2.0,three@0.160.1,@react-three/fiber@8.15.19&exports=Line,Stars,Html,OrbitControls",
+    "htm": "https://esm.sh/htm@3.1.1"
+  }
+}
+</script>
+
+<script type="module">
+import React, { useRef, useState, useMemo, useEffect } from "react";
+import { createRoot } from "react-dom/client";
+import * as THREE from "three";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Line, Stars, Html, OrbitControls } from "@react-three/drei";
+import htm from "htm";
+
+const html = htm.bind(React.createElement);
+const R = 2;          // globe radius
+const lift = 0.55;    // arc bow height
+
+// ---- the real deployed fleet: pick which gateway terminates the circuit ----
+// (the live multi-cloud benchmark — see DEPLOY_BENCHMARK / docs/results)
+const GATEWAYS = [
+  { id: "do-fra1", provider: "digitalocean", region: "fra1 · frankfurt", ip: "64.226.93.43",
+    lat: 50.11, lon: 8.68, dl: "2.99 mb/s" },
+  { id: "do-nyc3", provider: "digitalocean", region: "nyc3 · new york", ip: "68.183.148.148",
+    lat: 40.71, lon: -74.01, dl: "3.36 mb/s" },
+  { id: "aws-ec2", provider: "aws ec2", region: "eu-central-1 · frankfurt", ip: "3.79.19.58",
+    lat: 50.6, lon: 8.0, dl: "3.36 mb/s" },
+];
+
+// ingress → 3 sphinx hops → [gateway: selectable] → origin
+const BASE_NODES = [
+  { name: "ingress (a)", city: "san francisco", lat: 37.77, lon: -122.42, color: "#52ff8f",
+    desc: "http request enters the local quicmix ingress proxy and is wrapped in quic, paced to the mix's constant cell rate" },
+  { name: "mix hop 1", city: "amsterdam", lat: 52.37, lon: 4.90, color: "#7df9ff",
+    desc: "first sphinx hop re-encrypts and reorders the cell, adding per-hop latency the oracle-fed cc already expects" },
+  { name: "mix hop 2", city: "frankfurt", lat: 50.11, lon: 8.68, color: "#7df9ff",
+    desc: "second hop strips a layer; anonymity drops here are arq-recovered, never read as congestion" },
+  { name: "mix hop 3", city: "singapore", lat: 1.35, lon: 103.82, color: "#7df9ff",
+    desc: "third hop completes the sphinx path; no single relay has seen both ends of the circuit" },
+  null,  // gateway slot — filled from the selected droplet
+  { name: "origin", city: "clearweb", lat: 51.51, lon: -0.13, color: "#ffb53d",
+    desc: "origin server is fetched over tcp; the reply returns through the same circuit via reply-surbs" },
+];
+const STEP_LABELS = ["request enters", "mix hop 1/3", "mix hop 2/3", "mix hop 3/3", "gateway egress", "origin fetch"];
+const DEFCON = ["5", "4", "4", "3", "2", "1"];
+const GW = 4, N = BASE_NODES.length;
+
+function gatewayNode(gw) {
+  return { name: "gateway (b)", city: gw.region, lat: gw.lat, lon: gw.lon, color: "#52ff8f", ip: gw.ip,
+    desc: `the ${gw.provider} gateway (${gw.ip}) terminates quic and egresses to the clearweb — a curl through this proxy returns the node's own ip, not yours · ${gw.dl} over one quic flow` };
+}
+function buildGeo(gwIndex) {
+  const nodes = BASE_NODES.map((n, i) => i === GW ? gatewayNode(GATEWAYS[gwIndex]) : n);
+  const surf = nodes.map(n => latLonToVec3(n.lat, n.lon));
+  const dirs = surf.map(v => v.clone().normalize());
+  return { nodes, surf, dirs };
+}
+
+function latLonToVec3(lat, lon, r = R) {
+  const phi = (90 - lat) * Math.PI / 180, theta = (lon + 180) * Math.PI / 180;
+  return new THREE.Vector3(
+    -r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
+}
+function slerpDir(a, b, t) {
+  const d = THREE.MathUtils.clamp(a.dot(b), -1, 1), o = Math.acos(d);
+  if (o < 1e-4) return a.clone();
+  const so = Math.sin(o);
+  return a.clone().multiplyScalar(Math.sin((1 - t) * o) / so)
+    .add(b.clone().multiplyScalar(Math.sin(t * o) / so));
+}
+function arcPoint(dA, dB, s) {
+  return slerpDir(dA, dB, s).multiplyScalar(R + lift * Math.sin(Math.PI * s) + 0.02);
+}
+function arcPoints(dA, dB, n = 48) {
+  const out = [];
+  for (let i = 0; i <= n; i++) out.push(arcPoint(dA, dB, i / n).toArray());
+  return out;
+}
+const easeInOut = t => t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+function faceOut(v) {
+  const q = new THREE.Quaternion();
+  q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), v.clone().normalize());
+  return q;
+}
+
+// timeline depends only on the node count (constant): dwell + travel + a surb return
+const DWELL = 1.7, TRAVEL = 2.3, RETURN = 3.0;
+const TIMELINE = [];
+for (let i = 0; i < N; i++) {
+  TIMELINE.push({ type: "dwell", node: i, dur: DWELL });
+  if (i < N - 1) TIMELINE.push({ type: "travel", from: i, to: i + 1, dur: TRAVEL });
+}
+TIMELINE.push({ type: "return", dur: RETURN });
+const LOOP = TIMELINE.reduce((s, p) => s + p.dur, 0);
+function phaseAt(t) {
+  let acc = 0;
+  for (const p of TIMELINE) { if (t < acc + p.dur) return { p, local: (t - acc) / p.dur }; acc += p.dur; }
+  return { p: TIMELINE[TIMELINE.length - 1], local: 1 };
+}
+
+function Globe() {
+  return html`
+    <group>
+      <mesh><sphereGeometry args=${[R - 0.012, 48, 48]} /><meshBasicMaterial color="#020c08" /></mesh>
+      <mesh><sphereGeometry args=${[R, 36, 24]} /><meshBasicMaterial color="#1f6b3f" wireframe transparent opacity=${0.32} /></mesh>
+      <mesh><sphereGeometry args=${[R + 0.006, 64, 2]} /><meshBasicMaterial color="#52ff8f" wireframe transparent opacity=${0.5} /></mesh>
+    </group>`;
+}
+
+function Node({ node, pos, active }) {
+  const ring = useRef();
+  useFrame((s) => {
+    if (!ring.current) return;
+    const pulse = active ? (Math.sin(s.clock.elapsedTime * 5) * 0.5 + 0.5) : 0.25;
+    ring.current.scale.setScalar(1 + pulse * (active ? 0.9 : 0.3));
+    ring.current.material.opacity = (active ? 0.9 : 0.4) * (1 - pulse * 0.5);
+  });
+  const col = active ? "#ffb53d" : node.color;
+  return html`
+    <group position=${pos.toArray()}>
+      <mesh><sphereGeometry args=${[active ? 0.055 : 0.04, 16, 16]} /><meshBasicMaterial color=${col} /></mesh>
+      <mesh ref=${ring} quaternion=${faceOut(pos)}>
+        <ringGeometry args=${[0.07, 0.095, 32]} />
+        <meshBasicMaterial color=${col} transparent opacity=${0.6} side=${THREE.DoubleSide} />
+      </mesh>
+      <${Html} position=${[0, 0.13, 0]} center distanceFactor=${8} zIndexRange=${[2,0]}>
+        <div class=${"nodelabel" + (active ? " active" : "")}>${node.name} <span class="k">· ${node.city}</span></div>
+      </${Html}>
+    </group>`;
+}
+
+function Arcs({ geo, activeSeg }) {
+  return geo.nodes.slice(0, -1).map((_, i) => {
+    const pts = arcPoints(geo.dirs[i], geo.dirs[i + 1]);
+    const on = i <= activeSeg;
+    return html`<${Line} key=${i} points=${pts} color=${on ? "#52ff8f" : "#1f6b3f"}
+      lineWidth=${on ? 2.2 : 1} transparent opacity=${on ? 0.9 : 0.35} />`;
+  });
+}
+
+function Packet({ getState }) {
+  const ref = useRef(), glow = useRef();
+  useFrame(() => {
+    const { pos, visible } = getState();
+    if (!ref.current) return;
+    ref.current.visible = visible;
+    if (glow.current) glow.current.visible = visible;
+    if (visible && pos) { ref.current.position.copy(pos); if (glow.current) glow.current.position.copy(pos); }
+  });
+  return html`
+    <group>
+      <mesh ref=${ref}><sphereGeometry args=${[0.05, 16, 16]} /><meshBasicMaterial color="#ffffff" /></mesh>
+      <pointLight ref=${glow} color="#7df9ff" intensity=${2.2} distance=${1.6} />
+    </group>`;
+}
+
+function Rig({ geo, gwKey, paused, onStep, packetState }) {
+  const { camera } = useThree();
+  const acc = useRef(0), lastStep = useRef(-1), lastGw = useRef(gwKey);
+  const focus = useRef(geo.dirs[0].clone()), rad = useRef(3.0);
+  useFrame((state, delta) => {
+    if (lastGw.current !== gwKey) { lastGw.current = gwKey; acc.current = 0; lastStep.current = -1; }
+    if (!paused.current) acc.current += delta;
+    const t = acc.current % LOOP;
+    const { p, local } = phaseAt(t);
+    const { surf, dirs } = geo;
+
+    let activeNode = 0, packetPos = null, packetVis = false, seg = -1;
+    if (p.type === "dwell") { activeNode = p.node; seg = p.node - 1; packetPos = surf[p.node]; }
+    else if (p.type === "travel") {
+      activeNode = p.to; seg = p.from;
+      packetPos = arcPoint(dirs[p.from], dirs[p.to], easeInOut(local)); packetVis = true;
+    } else {
+      const c = N - 1, f = local * c, k = Math.min(Math.floor(f), c - 1), a = N - 1 - k, b = a - 1;
+      packetPos = arcPoint(dirs[a], dirs[b], f - k); packetVis = true; activeNode = 0;
+    }
+    packetState.current = { pos: packetPos, visible: packetVis };
+
+    const stepIdx = p.type === "return" ? N : activeNode;
+    if (stepIdx !== lastStep.current) { lastStep.current = stepIdx; onStep(stepIdx, seg, p.type); }
+
+    let targetDir, targetRad;
+    if (p.type === "dwell") { targetDir = dirs[activeNode]; targetRad = 3.0 - 0.18 * Math.sin(local * Math.PI); }
+    else if (p.type === "travel") { targetDir = slerpDir(dirs[p.from], dirs[p.to], easeInOut(local)); targetRad = 3.0 + 2.4 * Math.sin(local * Math.PI); }
+    else { targetDir = dirs[0]; targetRad = 6.4; }
+
+    focus.current = slerpDir(focus.current, targetDir, 1 - Math.pow(0.0015, delta));
+    rad.current += (targetRad - rad.current) * (1 - Math.pow(0.0009, delta));
+    const up = new THREE.Vector3(0, 1, 0);
+    const camPos = focus.current.clone().multiplyScalar(rad.current).add(up.multiplyScalar(0.6));
+    camera.position.lerp(camPos, 1 - Math.pow(0.0009, delta));
+    camera.lookAt(0, 0, 0);
+  });
+  return null;
+}
+
+function Scene({ geo, gwKey, paused, onStep }) {
+  const packetState = useRef({ pos: geo.surf[0], visible: false });
+  const [active, setActive] = useState(0), [seg, setSeg] = useState(-1);
+  return html`
+    <${React.Fragment}>
+      <${Stars} radius=${120} depth=${60} count=${2600} factor=${4} fade speed=${0.6} />
+      <ambientLight intensity=${0.7} />
+      <${Globe} />
+      <${Arcs} geo=${geo} activeSeg=${seg} />
+      ${geo.nodes.map((nd, i) => html`<${Node} key=${i} node=${nd} pos=${geo.surf[i]} active=${i === active} />`)}
+      <${Packet} getState=${() => packetState.current} />
+      <${Rig} geo=${geo} gwKey=${gwKey} paused=${paused} packetState=${packetState}
+        onStep=${(idx, s, type) => { setActive(Math.min(idx, N - 1)); setSeg(s); onStep(idx, s, type); }} />
+      <${OrbitControls} enablePan=${false} enableZoom enableRotate minDistance=${2.6} maxDistance=${9}
+        enableDamping dampingFactor=${0.08} />
+    </${React.Fragment}>`;
+}
+
+function App() {
+  const paused = useRef(false);
+  const [gwIndex, setGwIndex] = useState(0);
+  const [step, setStep] = useState({ idx: 0, type: "dwell" });
+  const geo = useMemo(() => buildGeo(gwIndex), [gwIndex]);
+  const onStep = (idx, _s, type) => setStep({ idx: Math.min(idx, N - 1), type });
+
+  useEffect(() => { const b = document.getElementById("boot"); if (b) b.style.display = "none"; }, []);
+
+  const node = geo.nodes[step.idx];
+  const returning = step.type === "return";
+  const stepName = returning ? "reply // unlinkable return" : STEP_LABELS[step.idx];
+  const defcon = returning ? "1" : DEFCON[step.idx];
+  const pct = Math.round(((step.idx + 1) / N) * 100);
+
+  return html`
+    <${React.Fragment}>
+      <${Canvas} camera=${{ position: [0, 0.6, 3.2], fov: 52 }} gl=${{ antialias: true, alpha: false }}
+        dpr=${[1, 2]} onCreated=${({ gl }) => gl.setClearColor("#02060a")}
+        onPointerDown=${() => { paused.current = true; }} onPointerUp=${() => { paused.current = false; }}>
+        <${Scene} geo=${geo} gwKey=${gwIndex} paused=${paused} onStep=${onStep} />
+      </${Canvas}>
+
+      <div class="hud">
+        <div class="frame top">
+          <span><b>quicmix</b> // mixnet trace <span class="blink">_</span></span>
+          <span>http get → origin · quic over the mixnet</span>
+          <span class="defcon">defcon ${defcon}</span>
+        </div>
+
+        <div class="frame gw">
+          <h4>gateway (b) — pick a droplet</h4>
+          ${GATEWAYS.map((g, i) => html`
+            <button key=${g.id} class=${i === gwIndex ? "on" : ""} onClick=${() => setGwIndex(i)}>
+              <span class="r"><span>${g.provider}</span><span>${g.dl}</span></span>
+              <span class="ip">${g.region} · ${g.ip}</span>
+            </button>`)}
+          <div class="note">real nodes from the live multi-cloud run · the trace re-routes its egress hop to the selected gateway</div>
+        </div>
+
+        <div class="frame panel">
+          <div class="lbl">step ${Math.min(step.idx + 1, N)} / ${N}</div>
+          <div class="step">${stepName}</div>
+          <div class="geo">▸ ${node.name} · ${node.city}${node.ip ? " · " + node.ip : ""} · ${node.lat.toFixed(2)}, ${node.lon.toFixed(2)}</div>
+          <div class="desc">${returning
+            ? "the origin's reply rides reply-surbs back through the same circuit; rotation can now swap the whole circuit for a fresh, unlinkable one mid-session"
+            : node.desc}</div>
+          <div class="meter"><i style=${{ width: pct + "%" }}></i></div>
+        </div>
+      </div>
+    </${React.Fragment}>`;
+}
+
+try {
+  createRoot(document.getElementById("root")).render(html`<${App} />`);
+} catch (e) {
+  const b = document.getElementById("boot");
+  if (b) b.innerHTML =
+    '<div class="err">trace failed to start — this page needs a modern browser with es-module + webgl support.<br><br>' +
+    '<span style="color:#52ff8f">' + (e && e.message ? e.message : e) + '</span><br><br>' +
+    'the full project lives at <a href="https://github.com/maceip/QUICMIX">github.com/maceip/QUICMIX</a></div>';
+}
+</script>
+</body>
+</html>
