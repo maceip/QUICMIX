@@ -57,6 +57,22 @@
   .dotkey h4{margin:0 0 6px;font-size:10px;color:var(--p-dim);text-transform:uppercase;letter-spacing:.16em}
   .dotkey .row{display:flex;align-items:center;gap:8px;margin:4px 0;color:#cfe;white-space:nowrap}
   .dotkey .dot{width:9px;height:9px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor;flex:none}
+
+  /* micro-interactions: a slight motion when controls are hovered / focused / pressed */
+  .ctl button,.startover{transition:transform .09s ease,filter .15s ease,box-shadow .18s ease,background .15s ease}
+  .ctl button:hover,.startover:hover{filter:brightness(1.08)}
+  .ctl button:active,.startover:active{transform:translateX(-50%) scale(.94)}
+  .ctl button:active{transform:scale(.94)}              /* ctl button isn't centred — no translate */
+  .ctl .gw{transition:transform .1s ease,border-color .15s ease,background .15s ease,box-shadow .15s ease}
+  .ctl .gw:hover{border-color:var(--cyan);background:rgba(56,225,255,.1)}
+  .ctl .gw:active{transform:scale(.96)}
+  .ctl input{transition:transform .12s ease,border-color .15s ease,box-shadow .2s ease}
+  .ctl input:focus{transform:scale(1.012);box-shadow:0 0 0 1px var(--cyan),0 0 14px rgba(56,225,255,.28);animation:inpPop .22s ease}
+  @keyframes inpPop{from{transform:scale(1)}to{transform:scale(1.012)}}
+  @media (prefers-reduced-motion:reduce){
+    .ctl button,.startover,.ctl .gw,.ctl input{transition:none}
+    .ctl button:active,.startover:active,.ctl .gw:active,.ctl input:focus{transform:none;animation:none}
+  }
   /* intro stage: the url + fetch control is the focus — centred, larger, glowing */
   .ctl.intro{left:50%;top:34%;transform:translate(-50%,-50%);width:min(480px,calc(100% - 32px));
     padding:18px 20px;border-color:rgba(56,225,255,.45);background:linear-gradient(180deg,rgba(6,22,30,.92),rgba(2,8,12,.86));
@@ -565,11 +581,21 @@ const PHASES={dial:"dialing path",connect:"path connected",traverse:"request in 
 function Responsive(){
   const {camera,size}=useThree();
   useEffect(()=>{
-    const portrait = size.height >= size.width;
-    const narrow = size.width < 560;
-    camera.fov = portrait ? 60 : (narrow ? 56 : 52);
-    const z = portrait ? 6.6 : (narrow ? 5.8 : 5.2);
-    camera.position.set(0, portrait ? 0.45 : 0.9, z);
+    const w=size.width, h=size.height, portrait=h>=w;
+    // phones, folded cover screens and foldable-open-portrait: don't shrink the whole globe — keep it
+    // large and frame just the upper part, so a big hemisphere "rises" from the bottom (~half the globe
+    // shows) with the hud floating over it. desktop / landscape gets the full globe centred.
+    const compact = portrait || w < 760;
+    if(compact){
+      camera.fov = portrait ? 60 : 56;
+      camera.position.set(0, 0.15, portrait ? 4.8 : 5.2);
+      const f = 0.72;                       // put the globe centre ~72% down the screen
+      camera.setViewOffset(w, 2*f*h, 0, 0, w, h);   // render the top slice of a taller frustum
+    } else {
+      camera.clearViewOffset();
+      camera.fov = 52;
+      camera.position.set(0, 0.9, 5.2);
+    }
     camera.updateProjectionMatrix();
   },[size.width,size.height,camera]);
   return null;
@@ -718,7 +744,7 @@ function App(){
       </div>
 
       ${stage==="intro"?html`<div class="frame ctl intro">
-        <h4>fetch any site across the mixnet</h4>
+        <h4>fetch any site across quicmix</h4>
         <div class="row">
           <input value=${url} onChange=${e=>setUrl(e.target.value)} placeholder="https://www.example.com"
             spellcheck="false" onKeyDown=${e=>{if(e.key==="Enter")startFetch();}}/>
