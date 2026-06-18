@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>quicmix // mixnet trace</title>
-<meta name="description" content="a wargames-style 3d trace of an http request crossing a metadata-private mixnet over quic" />
+<title>quicmix // live demo</title>
+<meta name="description" content="a live 3d demo of quicmix carrying an http request across a metadata-private mixnet over quic — pick a real gateway and watch the nodes light up on the globe" />
 <style>
   :root{
     --p:#52ff8f; --p-dim:#1f6b3f; --amber:#ffb53d; --cyan:#38e1ff; --rail:#3b82f6; --bg:#02060a;
@@ -67,10 +67,16 @@
     letter-spacing:.04em;pointer-events:none;padding:1px 5px;border:1px solid currentColor;border-radius:2px;
     background:rgba(2,6,10,.7)}
   .boot{position:fixed;inset:0;z-index:9;background:var(--bg);display:flex;align-items:center;justify-content:center;
-    flex-direction:column;gap:10px;color:var(--p);font-size:14px}
-  .boot .bar{width:240px;height:8px;border:1px solid var(--p-dim)}
-  .boot .bar i{display:block;height:100%;width:30%;background:var(--p);box-shadow:0 0 8px var(--p);animation:load 1.2s ease-in-out infinite alternate}
-  @keyframes load{to{width:92%}}
+    flex-direction:column;gap:12px;color:var(--p);font-size:14px}
+  /* material-3-expressive "squiggle" loader — the fill tracks real module-load progress,
+     the wave just undulates for flair (no baseless bouncing) */
+  .boot .squig{width:260px;height:26px;overflow:visible}
+  .squig-track{stroke:var(--p-dim);stroke-width:3.5;stroke-linecap:round;opacity:.45}
+  .squig-wave{fill:none;stroke:var(--p);stroke-width:3.5;stroke-linecap:round;stroke-linejoin:round;
+    filter:drop-shadow(0 0 6px var(--p));animation:squigmove 1s linear infinite}
+  @keyframes squigmove{to{transform:translateX(-26px)}}   /* exactly one wave period → seamless travel */
+  .squig-stop{fill:var(--p);filter:drop-shadow(0 0 5px var(--p))}
+  .boot .pct{font-size:12px;color:var(--cyan);letter-spacing:.12em;font-variant-numeric:tabular-nums}
   .err{max-width:520px;text-align:center;color:var(--amber);line-height:1.6;padding:0 20px}
   a{color:var(--cyan)} .hint{position:fixed;left:50%;bottom:4px;transform:translateX(-50%);z-index:6;font-size:10.5px;color:var(--p-dim);pointer-events:none;opacity:0;transition:opacity .5s ease}
 
@@ -92,7 +98,7 @@
   @keyframes pulseBtn{50%{box-shadow:0 0 36px rgba(82,255,143,.85)}}
   .landing .land-hint{font-size:10.5px;color:var(--p-dim);letter-spacing:.06em;text-transform:uppercase}
 
-  /* widgets fade in once the trace has started */
+  /* widgets fade in once the demo has started */
   .widget{animation:fadeIn .55s ease both}
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
@@ -191,8 +197,15 @@
 </head>
 <body>
   <div id="root"></div>
-  <div class="boot" id="boot"><div>quicmix // initializing mixnet trace</div>
-    <div class="bar"><i></i></div><div style="font-size:11px;color:var(--p-dim)">loading three · r3f · drei</div></div>
+  <div class="boot" id="boot"><div>quicmix // initializing live demo</div>
+    <svg class="squig" id="squig" viewBox="0 0 260 26" preserveAspectRatio="none" aria-hidden="true">
+      <defs><clipPath id="squigclip"><rect id="squigrect" x="0" y="0" width="0" height="26"/></clipPath></defs>
+      <line class="squig-track" x1="2" y1="13" x2="258" y2="13"/>
+      <g clip-path="url(#squigclip)"><path id="squigwave" class="squig-wave" d="M0 13 L260 13"/></g>
+      <circle class="squig-stop" id="squigstop" cx="256" cy="13" r="2.6"/>
+    </svg>
+    <div class="pct" id="bootpct">0%</div>
+    <div style="font-size:11px;color:var(--p-dim)">loading three · r3f · drei</div></div>
   <div class="vig"></div><div class="crt"></div>
   <div class="hint">drag to look · scroll to zoom · click a gateway dot</div>
 
@@ -210,12 +223,43 @@
 </script>
 
 <script type="module">
-import React, { useRef, useState, useMemo, useEffect } from "react";
-import { createRoot } from "react-dom/client";
-import * as THREE from "three";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Line, Stars, Html, OrbitControls } from "@react-three/drei";
-import htm from "htm";
+// ── material-3-expressive squiggle loader — drives a real, monotonic progress bar that fills
+//    as each runtime module actually finishes loading (in parallel), then hands off to the app ──
+const _boot=document.getElementById("boot");
+const _rect=document.getElementById("squigrect");
+const _pct=document.getElementById("bootpct");
+const _wave=document.getElementById("squigwave");
+const SQ_W=260, SQ_P=26, SQ_A=5.5, SQ_MID=13;   // width, wave period, amplitude, midline
+(function(){ // draw the squiggle path once (one extra period to the left so the travel loop is seamless)
+  let d="M -26 "+SQ_MID;
+  for(let x=-26;x<=SQ_W;x+=2) d+=" L "+x+" "+(SQ_MID - SQ_A*Math.sin((x/SQ_P)*2*Math.PI)).toFixed(2);
+  if(_wave) _wave.setAttribute("d",d);
+})();
+let _target=0.03, _shown=0;
+(function tick(){ _shown += (_target-_shown)*0.14;
+  if(_rect) _rect.setAttribute("width",(_shown*SQ_W).toFixed(1));
+  if(_pct) _pct.textContent=Math.round(_shown*100)+"%";
+  if(_boot && _boot.style.display!=="none") requestAnimationFrame(tick);
+})();
+const setProg=p=>{ _target=Math.max(_target,Math.min(1,p)); };   // monotonic — never walks backwards
+
+const SPECS=[["react","react"],["react-dom/client","rdom"],["three","three"],
+  ["@react-three/fiber","fiber"],["@react-three/drei","drei"],["htm","htm"]];
+const mods={}; let _done=0;
+try{
+  await Promise.all(SPECS.map(([url,key])=>import(url).then(m=>{ mods[key]=m; _done++;
+    setProg(0.03+0.97*(_done/SPECS.length)); })));
+}catch(e){
+  if(_boot) _boot.innerHTML='<div class="err">failed to load runtime modules — needs network + a modern browser.<br><br>'+
+    '<span style="color:#52ff8f">'+(e&&e.message?e.message:e)+'</span></div>';
+  throw e;
+}
+const React=mods.react.default, {useRef,useState,useMemo,useEffect}=mods.react;
+const {createRoot}=mods.rdom;
+const THREE=mods.three;
+const {Canvas,useFrame,useThree}=mods.fiber;
+const {Line,Stars,Html,OrbitControls}=mods.drei;
+const htm=mods.htm.default;
 const html = htm.bind(React.createElement);
 
 const R = 2, LIFT = 0.42;
@@ -417,7 +461,7 @@ function Scene({gwIndex,onPick,live,liveProg,paused,report}){
   </${React.Fragment}>`;
 }
 
-const PHASES={dial:"dialing path",connect:"path connected",traverse:"request in flight",hold:"reply via surbs",live:"live trace"};
+const PHASES={dial:"dialing path",connect:"path connected",traverse:"request in flight",hold:"reply via surbs",live:"live run"};
 
 // reframe the globe for the current viewport — pull back + widen fov on portrait / narrow screens
 // (phones, folded cover screens) so the whole globe and its arcs stay in frame; runs on every resize.
@@ -519,7 +563,7 @@ function App(){
   }
 
   const n=info.idx, phase=info.phase;
-  const stepName=PHASES[phase]||"trace";
+  const stepName=PHASES[phase]||"idle";
   const mode=live?"live":"demo";
   const pct = live ? Math.round(liveProg.current*100) : Math.round(((n+1)/7)*100);
   const fmtBps=v=>v?(v/1e6>=1?(v/1e6).toFixed(2)+" mb/s":(v/1e3).toFixed(0)+" kb/s"):"–";
@@ -568,7 +612,7 @@ function App(){
 
     ${!started?html`<div class="landing">
       <div class="land-title">quicmix</div>
-      <div class="land-sub">a wargames-style trace of an http request crossing a metadata-private mixnet over quic</div>
+      <div class="land-sub">a live 3d demo of quicmix routing an http request across a metadata-private mixnet over quic</div>
       <button class="land-btn" onClick=${()=>setStarted(true)}>▶ start</button>
       <div class="land-hint">press start to bring up the console</div>
     </div>`:null}
@@ -576,7 +620,7 @@ function App(){
     <div class="hud">
       <div class="hud-top">
       <div class="frame top">
-        <span><b>quicmix</b> // mixnet trace <span class="blink">_</span></span>
+        <span><b>quicmix</b> // live demo <span class="blink">_</span></span>
         <span class="sub">http get → origin · quic over the mixnet</span>
         <span class="mode">${mode} ${status?("· "+status):""}</span>
       </div>
@@ -636,7 +680,7 @@ Scene._k=-1;
 
 try{ createRoot(document.getElementById("root")).render(html`<${App}/>`); }
 catch(e){ const b=document.getElementById("boot");
-  if(b) b.innerHTML='<div class="err">trace failed to start — needs a modern browser with es-module + webgl.<br><br>'+
+  if(b) b.innerHTML='<div class="err">demo failed to start — needs a modern browser with es-module + webgl.<br><br>'+
     '<span style="color:#52ff8f">'+(e&&e.message?e.message:e)+'</span><br><br>'+
     'project: <a href="https://github.com/maceip/QUICMIX">github.com/maceip/QUICMIX</a></div>'; }
 </script>
