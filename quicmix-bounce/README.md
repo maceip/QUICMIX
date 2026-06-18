@@ -5,13 +5,16 @@ finishes "fetching a page over the mixnet" it shows that page in an iframe — b
 `X-Frame-Options` / `Content-Security-Policy: frame-ancestors` headers that forbid embedding, so the
 iframe renders blank. A browser can't strip response headers; only a server can.
 
-This service runs on the gateway droplet, fetches the page **server-side** (so it egresses at the
-droplet's own IP — the same exit as the quicmix gateway), and re-serves it **without** the
-frame-blocking headers, injecting a `<base href>` so the page's assets still resolve.
+This service opens a **real quicmix link** to the chosen gateway (`connect_via` + `ingress::serve`,
+exactly like `quicmix-bridge`), fetches the page **through that QUIC tunnel** — so the request really
+egresses at the gateway — and re-serves it **without** the frame-blocking headers, injecting a
+`<base href>` so the page's assets still resolve. If the gateway link can't be established (missing
+cert / gateway down) it falls back to a direct server-side fetch from the droplet, so the demo still
+renders. The route taken is reported in an `x-bounce-route: gateway:<id> | direct` response header.
 
 ```
-GET /bounce?url=<url-encoded>[&gateway=<id>]   ->   the page, re-served framable
-GET /healthz                                    ->   "ok"
+GET /bounce?url=<url-encoded>[&gateway=fra1|nyc3]   ->   the page, fetched over quic, re-served framable
+GET /healthz                                          ->   "ok"
 ```
 
 It is **not** a general-purpose frame-buster:
@@ -24,10 +27,15 @@ It is **not** a general-purpose frame-buster:
 
 ## run
 
+Needs the gateway certs to open the quicmix link (same files `quicmix-bridge` uses): `certs/<id>.cert`
+per gateway, or point at them with `QUICMIX_GW_<ID>_CERT` / override the addr with `QUICMIX_GW_<ID>_ADDR`
+(e.g. route `fra1` over loopback on its own droplet). Without a usable cert it falls back to a direct
+fetch.
+
 ```sh
 cargo run --release --manifest-path quicmix-bounce/Cargo.toml
 # listens on 127.0.0.1:9100 by default; override with BOUNCE_LISTEN
-BOUNCE_LISTEN=127.0.0.1:9100 ./target/release/quicmix-bounce
+BOUNCE_LISTEN=127.0.0.1:9100 QUICMIX_GW_FRA1_CERT=/opt/quicmix/certs/fra1.cert ./target/release/quicmix-bounce
 ```
 
 ### behind Caddy (auto-TLS, same droplet as quicmix-bridge)
@@ -55,6 +63,8 @@ After=network.target
 
 [Service]
 Environment=BOUNCE_LISTEN=127.0.0.1:9100
+WorkingDirectory=/opt/quicmix
+# certs/<id>.cert resolved from WorkingDirectory, or set QUICMIX_GW_<ID>_CERT explicitly
 ExecStart=/opt/quicmix/quicmix-bounce
 Restart=always
 

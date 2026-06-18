@@ -51,6 +51,12 @@
   .ctl .gw .ip{font-size:10px;color:var(--p-dim);margin-top:2px}
   .ctl .gw.on{border-color:var(--cyan);color:var(--cyan);background:rgba(56,225,255,.12);box-shadow:0 0 9px rgba(56,225,255,.3)}
   .ctl .note{margin-top:8px;font-size:10.5px;color:var(--p-dim);line-height:1.45}
+
+  /* always-on map key, bottom-left — explains the coloured dots */
+  .dotkey{left:12px;bottom:12px;width:auto;padding:10px 12px;font-size:11px;z-index:6}
+  .dotkey h4{margin:0 0 6px;font-size:10px;color:var(--p-dim);text-transform:uppercase;letter-spacing:.16em}
+  .dotkey .row{display:flex;align-items:center;gap:8px;margin:4px 0;color:#cfe;white-space:nowrap}
+  .dotkey .dot{width:9px;height:9px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor;flex:none}
   /* intro stage: the url + fetch control is the focus — centred, larger, glowing */
   .ctl.intro{left:50%;top:34%;transform:translate(-50%,-50%);width:min(480px,calc(100% - 32px));
     padding:18px 20px;border-color:rgba(56,225,255,.45);background:linear-gradient(180deg,rgba(6,22,30,.92),rgba(2,8,12,.86));
@@ -177,8 +183,11 @@
     .ctl.intro .note{display:none}
 
     /* connection panel: docked top-left while routing, full-width bar when morphed */
-    .metrics.dock{top:auto;bottom:max(8px,env(safe-area-inset-bottom));left:8px;width:min(240px,calc(100% - 16px));padding:9px 11px}
+    /* dock the connection panel bottom-right and the map key bottom-left so they sit side by side */
+    .metrics.dock{top:auto;bottom:max(8px,env(safe-area-inset-bottom));left:auto;right:8px;width:min(48%,210px);padding:8px 10px}
     .metrics.morph{top:50px;width:calc(100% - 16px)}
+    .dotkey{left:8px;bottom:max(8px,env(safe-area-inset-bottom));font-size:9.5px;padding:7px 9px;max-width:46%}
+    .dotkey .row{white-space:normal}
 
     /* connection legend full width; drop role captions, enlarge node names */
     .connlegend{width:calc(100% - 16px);padding:8px 10px 6px}
@@ -292,6 +301,18 @@ const PUBLIC = [
   [-26,28],[6,3],[30,31],[-1,36],
   [-33,151],[-37,144],[-41,174],
 ];
+// extra public nodes spread across the whole surface — seeded clusters + a uniform sprinkle so the
+// globe reads as a populated, randomly-clustered network rather than a few continental blobs.
+const SPREAD = (()=>{
+  let s=20240617; const rnd=()=>{s=(s*1103515245+12345)&0x7fffffff;return s/0x7fffffff;};
+  const out=[];
+  for(let c=0;c<14;c++){ const clat=rnd()*150-75, clon=rnd()*360-180, k=2+Math.floor(rnd()*5);
+    for(let i=0;i<k;i++) out.push([clat+(rnd()-0.5)*26, clon+(rnd()-0.5)*34]); }   // organic clusters
+  for(let i=0;i<34;i++) out.push([rnd()*160-80, rnd()*360-180]);                    // uniform sprinkle
+  return out;
+})();
+// the full public-node set (used for the green dots AND the always-on background link network)
+const NET = PUBLIC.concat(SPREAD);
 
 const ll = (lat,lon,r=R)=>{const a=(90-lat)*Math.PI/180,b=(lon+180)*Math.PI/180;
   return new THREE.Vector3(-r*Math.sin(a)*Math.cos(b), r*Math.cos(a), r*Math.sin(a)*Math.sin(b));};
@@ -335,17 +356,60 @@ function Dot({pos,color,size=0.028,onClick,pulse=false,opacity=1}){
     <sphereGeometry args=${[size,12,12]}/><meshBasicMaterial color=${color} transparent opacity=${opacity}/></mesh>`;
 }
 
-// background dot field: public routers + mixnet clusters + clickable gateways
+// background dot field: public routers (the full NET set) + mixnet clusters + clickable gateways
 function Field({gwIndex,onPick,dim=0}){
-  const pubV=useMemo(()=>PUBLIC.map(p=>ll(p[0],p[1])),[]);
+  const pubV=useMemo(()=>NET.map(p=>ll(p[0],p[1])),[]);
   const mixV=useMemo(()=>MIXNETS.flatMap(m=>clusterDots(m.center,m.n).map(d=>({v:ll(d[0],d[1]),c:COLORS[m.id]}))),[]);
   const gwV=useMemo(()=>GATEWAYS.map(g=>ll(g.lat,g.lon)),[]);
   const op=1-dim*0.72;                       // fade the background dots when the globe dims
   return html`<group>
-    ${pubV.map((v,i)=>html`<${Dot} key=${"p"+i} pos=${v} color=${COLORS.public} size=${0.022} opacity=${op}/>`)}
+    ${pubV.map((v,i)=>html`<${Dot} key=${"p"+i} pos=${v} color=${COLORS.public} size=${0.02} opacity=${op}/>`)}
     ${mixV.map((d,i)=>html`<${Dot} key=${"m"+i} pos=${d.v} color=${d.c} size=${0.03} opacity=${op}/>`)}
     ${gwV.map((v,i)=>html`<${Dot} key=${"g"+i} pos=${v} color=${COLORS.gateway} size=${0.05} opacity=${Math.max(op,0.6)}
         pulse=${i===gwIndex} onClick=${(e)=>{e.stopPropagation();onPick(i);}}/>`)}
+  </group>`;
+}
+
+// always-on public internet backbone: solid dim links between nearby public nodes, with little
+// flashes of data sliding along them. present from page load through the whole demo, kept dimmer
+// than the quicmix route / dial / legend so it reads as ambient background, not the foreground story.
+function BackgroundNet({dim=0}){
+  const data=useMemo(()=>{
+    const V=NET.map(p=>ll(p[0],p[1],R+0.008));
+    const THRESH=0.92, E=[];                       // connect each node to its nearest few neighbours
+    for(let i=0;i<V.length;i++){
+      const near=[]; for(let j=0;j<V.length;j++){ if(i===j)continue; const d=V[i].distanceTo(V[j]); if(d<THRESH) near.push([d,j]); }
+      near.sort((a,b)=>a[0]-b[0]);
+      for(let k=0;k<Math.min(2,near.length);k++){ const j=near[k][1]; E.push(i<j?[i,j]:[j,i]); }
+    }
+    const seen=new Set(), edges=[]; for(const e of E){ const k=e[0]+"_"+e[1]; if(!seen.has(k)){seen.add(k);edges.push(e);} }
+    const segPos=[]; for(const [a,b] of edges){ segPos.push(...V[a].toArray(), ...V[b].toArray()); }
+    const seg=new THREE.BufferGeometry(); seg.setAttribute("position",new THREE.Float32BufferAttribute(segPos,3));
+    const M=Math.min(48,edges.length);
+    const flashGeo=new THREE.BufferGeometry();
+    flashGeo.setAttribute("position",new THREE.Float32BufferAttribute(new Float32Array(Math.max(1,M)*3),3));
+    const fl=[]; for(let i=0;i<M;i++) fl.push({e:Math.floor(Math.random()*edges.length),t:Math.random(),spd:0.3+Math.random()*0.6});
+    return {V,edges,seg,flashGeo,fl};
+  },[]);
+  const segMat=useRef(), flashMat=useRef();
+  useFrame((st,dt)=>{
+    const {V,edges,flashGeo,fl}=data; const arr=flashGeo.attributes.position.array;
+    for(let i=0;i<fl.length;i++){ const f=fl[i]; f.t+=dt*f.spd;
+      if(f.t>=1){ f.t=0; f.e=Math.floor(Math.random()*edges.length); f.spd=0.3+Math.random()*0.6; }
+      const [a,b]=edges[f.e]; const x=V[a].x+(V[b].x-V[a].x)*f.t, y=V[a].y+(V[b].y-V[a].y)*f.t, z=V[a].z+(V[b].z-V[a].z)*f.t;
+      arr[i*3]=x; arr[i*3+1]=y; arr[i*3+2]=z; }
+    flashGeo.attributes.position.needsUpdate=true;
+    const base=1-dim*0.55;                          // ambient, and a touch more when the globe dims
+    if(segMat.current) segMat.current.opacity=0.14*base;
+    if(flashMat.current) flashMat.current.opacity=0.85*base;
+  });
+  return html`<group>
+    <lineSegments geometry=${data.seg}>
+      <lineBasicMaterial ref=${segMat} color=${COLORS.public} transparent opacity=${0.14}/>
+    </lineSegments>
+    <points geometry=${data.flashGeo}>
+      <pointsMaterial ref=${flashMat} color="#9bffc8" size=${0.038} sizeAttenuation transparent opacity=${0.85}/>
+    </points>
   </group>`;
 }
 
@@ -481,6 +545,7 @@ function Scene({gwIndex,onPick,stage,dialRef,trafRef,dim,domain}){
     <ambientLight intensity=${0.75}/>
     <${Globe} dim=${dim}/>
     <${FillField} dim=${dim}/>
+    <${BackgroundNet} dim=${dim}/>
     <${Field} gwIndex=${gwIndex} onPick=${onPick} dim=${dim}/>
     ${litRoute?html`<${RouteNodes} path=${path}/>`:null}
     <${Rail} path=${path} reveal=${rail.reveal} connected=${rail.connected}/>
@@ -639,6 +704,17 @@ function App(){
         <span><b>quicmix</b> // live demo <span class="blink">_</span></span>
         <span class="sub">http get over a metadata-private mixnet · quic on both ends</span>
         <span class="mode">${stage}</span>
+      </div>
+
+      <div class="frame dotkey">
+        <h4>map key</h4>
+        <div class="row"><span class="dot" style=${{color:COLORS.public}}></span> public node / internet link</div>
+        <div class="row"><span class="dot" style=${{color:COLORS.gateway}}></span> quicmix client · gateway</div>
+        <div class="row"><span class="dot" style=${{color:COLORS.nym}}></span> nym mix</div>
+        <div class="row"><span class="dot" style=${{color:COLORS.tor}}></span> tor relay</div>
+        <div class="row"><span class="dot" style=${{color:COLORS.katzenpost}}></span> katzenpost mix</div>
+        <div class="row"><span class="dot" style=${{color:COLORS.hopr}}></span> hopr node</div>
+        <div class="row"><span class="dot" style=${{color:COLORS.origin}}></span> destination</div>
       </div>
 
       ${stage==="intro"?html`<div class="frame ctl intro">
