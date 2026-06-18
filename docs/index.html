@@ -208,50 +208,44 @@
 } }
 </script>
 
+<!-- material-3-expressive squiggle loader: this tiny no-import module runs immediately and animates
+     the loading bar while the main module's (static) imports fetch in parallel; the app signals real
+     completion via window.__bootFinish on mount. a watchdog surfaces an error if the modules never load. -->
 <script type="module">
-// ── material-3-expressive squiggle loader — drives a real, monotonic progress bar that fills
-//    as each runtime module actually finishes loading (in parallel), then hands off to the app ──
-const _boot=document.getElementById("boot");
-const _rect=document.getElementById("squigrect");
-const _pct=document.getElementById("bootpct");
-const _wave=document.getElementById("squigwave");
-const SQ_W=260, SQ_P=26, SQ_A=5.5, SQ_MID=13;   // width, wave period, amplitude, midline
-(function(){ // draw the squiggle path once (one extra period to the left so the travel loop is seamless)
-  let d="M -26 "+SQ_MID;
-  for(let x=-26;x<=SQ_W;x+=2) d+=" L "+x+" "+(SQ_MID - SQ_A*Math.sin((x/SQ_P)*2*Math.PI)).toFixed(2);
-  if(_wave) _wave.setAttribute("d",d);
+(function(){
+  const boot=document.getElementById("boot"), rect=document.getElementById("squigrect"),
+        pct=document.getElementById("bootpct"), wave=document.getElementById("squigwave");
+  const SQ_W=260, SQ_P=26, SQ_A=5.5, SQ_MID=13;   // width, wave period, amplitude, midline
+  if(wave){ let d="M -26 "+SQ_MID;     // one extra period to the left so the travel animation is seamless
+    for(let x=-26;x<=SQ_W;x+=2) d+=" L "+x+" "+(SQ_MID - SQ_A*Math.sin((x/SQ_P)*2*Math.PI)).toFixed(2);
+    wave.setAttribute("d",d); }
+  let shown=0, finishing=false, last=performance.now();
+  (function frame(now){
+    const dt=Math.min(0.064,((now||last)-last)/1000); last=now||last;
+    // trickle toward a soft 0.9 ceiling while loading; only real completion (finishing) unlocks 100%
+    const ceil=finishing?1:0.9;
+    shown += (ceil-shown)*(1-Math.exp(-(finishing?9:3.2)*dt)) + (finishing?0.4:0.05)*dt;
+    if(shown>ceil) shown=ceil;
+    if(rect) rect.setAttribute("width",(shown*SQ_W).toFixed(1));
+    if(pct) pct.textContent=Math.round(shown*100)+"%";
+    if(finishing && shown>=0.999){ if(boot) boot.style.display="none"; return; }
+    if(!boot || boot.style.display!=="none") requestAnimationFrame(frame);
+  })();
+  window.__bootFinish=()=>{ finishing=true; };   // called by the app once it has mounted
+  // watchdog: if the runtime modules never load (offline / blocked cdn), the main module never runs
+  setTimeout(()=>{ if(!finishing && boot && boot.style.display!=="none")
+    boot.innerHTML='<div class="err">failed to load runtime modules — check your connection and refresh.<br><br>'+
+      'needs network access to esm.sh + a modern browser with es-modules and webgl.</div>'; }, 20000);
 })();
-let _target=0.03, _shown=0, _last=performance.now();
-(function tick(now){
-  const dt=Math.min(0.064,((now||_last)-_last)/1000); _last=now||_last;
-  // soft ceiling = confirmed progress + a small anticipation buffer; only the real final unlocks 100%
-  const ceil=_target>=1 ? 1 : Math.min(0.965, _target+0.14);
-  // ease toward the ceiling (fast catch-up when a module resolves) + a constant creep so it never freezes
-  _shown += (ceil-_shown)*(1-Math.exp(-6*dt)) + 0.05*dt;
-  if(_shown>ceil) _shown=ceil;
-  if(_rect) _rect.setAttribute("width",(_shown*SQ_W).toFixed(1));
-  if(_pct) _pct.textContent=Math.round(_shown*100)+"%";
-  if(_boot && _boot.style.display!=="none") requestAnimationFrame(tick);
-})();
-const setProg=p=>{ _target=Math.max(_target,Math.min(1,p)); };   // monotonic — never walks backwards
+</script>
 
-const SPECS=[["react","react"],["react-dom/client","rdom"],["three","three"],
-  ["@react-three/fiber","fiber"],["@react-three/drei","drei"],["htm","htm"]];
-const mods={}; let _done=0;
-try{
-  await Promise.all(SPECS.map(([url,key])=>import(url).then(m=>{ mods[key]=m; _done++;
-    setProg(0.03+0.97*(_done/SPECS.length)); })));
-}catch(e){
-  if(_boot) _boot.innerHTML='<div class="err">failed to load runtime modules — needs network + a modern browser.<br><br>'+
-    '<span style="color:#52ff8f">'+(e&&e.message?e.message:e)+'</span></div>';
-  throw e;
-}
-const React=mods.react.default, {useRef,useState,useMemo,useEffect}=mods.react;
-const {createRoot}=mods.rdom;
-const THREE=mods.three;
-const {Canvas,useFrame,useThree}=mods.fiber;
-const {Line,Stars,Html,OrbitControls}=mods.drei;
-const htm=mods.htm.default;
+<script type="module">
+import React, { useRef, useState, useMemo, useEffect } from "react";
+import { createRoot } from "react-dom/client";
+import * as THREE from "three";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Line, Stars, Html, OrbitControls } from "@react-three/drei";
+import htm from "htm";
 const html = htm.bind(React.createElement);
 
 const R = 2, LIFT = 0.42;
@@ -555,9 +549,12 @@ function App(){
   const prevPhase=useRef("");
   const wsRef=useRef(null);
 
-  // dismiss the loading screen and reveal the globe ui directly (no start interstitial)
-  useEffect(()=>{const b=document.getElementById("boot");if(b)b.style.display="none";
-    const h=document.querySelector(".hint");if(h)h.style.opacity="1";},[]);
+  // hand off from the loading screen to the globe ui directly (no start interstitial)
+  useEffect(()=>{
+    if(window.__bootFinish) window.__bootFinish();
+    else { const b=document.getElementById("boot"); if(b) b.style.display="none"; }
+    const h=document.querySelector(".hint"); if(h) h.style.opacity="1";
+  },[]);
   const report=(idx,phase)=>setInfo(p=>(p.idx===idx&&p.phase===phase)?p:{idx,phase});
 
   function goLive(){
