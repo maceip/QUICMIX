@@ -69,7 +69,48 @@
   .boot .bar i{display:block;height:100%;width:30%;background:var(--p);box-shadow:0 0 8px var(--p);animation:load 1.2s ease-in-out infinite alternate}
   @keyframes load{to{width:92%}}
   .err{max-width:520px;text-align:center;color:var(--amber);line-height:1.6;padding:0 20px}
-  a{color:var(--cyan)} .hint{position:fixed;left:50%;bottom:4px;transform:translateX(-50%);z-index:6;font-size:10.5px;color:var(--p-dim);pointer-events:none}
+  a{color:var(--cyan)} .hint{position:fixed;left:50%;bottom:4px;transform:translateX(-50%);z-index:6;font-size:10.5px;color:var(--p-dim);pointer-events:none;opacity:0;transition:opacity .5s ease}
+
+  /* dim layer drawn over the globe — used on the landing gate and while traffic is on the tunnel */
+  .dim{position:fixed;inset:0;z-index:3;background:#02060a;pointer-events:none;opacity:0;transition:opacity .6s ease}
+
+  /* landing / start gate */
+  .landing{position:fixed;inset:0;z-index:7;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:15px;text-align:center;padding:0 24px;
+    background:radial-gradient(ellipse at center,rgba(2,6,10,.10),rgba(2,6,10,.55));
+    transition:opacity .5s ease;pointer-events:none}
+  .landing .land-title{font-size:clamp(34px,7vw,46px);letter-spacing:.18em;text-transform:uppercase;color:var(--p);
+    text-shadow:0 0 18px rgba(82,255,143,.55)}
+  .landing .land-sub{font-size:13px;color:#bdffd4;letter-spacing:.04em;max-width:380px;line-height:1.6}
+  .landing .land-btn{pointer-events:auto;margin-top:6px;font:inherit;font-size:15px;font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;color:#02060a;background:var(--p);border:0;padding:13px 36px;cursor:pointer;
+    box-shadow:0 0 22px rgba(82,255,143,.5);animation:pulseBtn 2.2s ease-in-out infinite}
+  .landing .land-btn:hover{background:#7dffb0;box-shadow:0 0 32px rgba(82,255,143,.8)}
+  @keyframes pulseBtn{50%{box-shadow:0 0 36px rgba(82,255,143,.85)}}
+  .landing .land-hint{font-size:10.5px;color:var(--p-dim);letter-spacing:.06em;text-transform:uppercase}
+
+  /* widgets fade in once the trace has started */
+  .widget{animation:fadeIn .55s ease both}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  /* connection legend — renders above the globe right before traffic crosses the tunnel */
+  .connlegend{position:fixed;top:62px;left:50%;transform:translate(-50%,-10px);z-index:6;pointer-events:none;
+    padding:10px 16px;border:1px solid var(--p-dim);
+    background:linear-gradient(180deg,rgba(56,225,255,.06),rgba(0,0,0,.35));
+    box-shadow:0 0 22px rgba(56,225,255,.18);opacity:0;
+    transition:opacity .45s ease,transform .45s ease;max-width:calc(100% - 24px)}
+  .connlegend.show{opacity:1;transform:translate(-50%,0)}
+  .connlegend .cl-title{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);
+    text-align:center;margin-bottom:8px;text-shadow:0 0 8px rgba(56,225,255,.5)}
+  .connlegend .cl-hops{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:3px;font-size:11px}
+  .connlegend .cl-hop{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border:1px solid transparent;
+    color:#7fae9a;white-space:nowrap;transition:color .3s ease,background .3s ease,border-color .3s ease;border-radius:2px}
+  .connlegend .cl-hop .cl-dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .connlegend .cl-hop.done{color:#bdffd4}
+  .connlegend .cl-hop.active{border-color:var(--cyan);background:rgba(56,225,255,.10);
+    box-shadow:0 0 12px rgba(56,225,255,.25);color:#eafcff;font-weight:600}
+  .connlegend .cl-arrow{color:var(--p-dim);font-size:11px}
+  .connlegend .cl-arrow.on{color:var(--cyan);text-shadow:0 0 6px rgba(56,225,255,.6)}
 </style>
 </head>
 <body>
@@ -238,10 +279,9 @@ function ActiveLabel({node}){
 }
 
 // ---- the animation driver: dial each hop (2x slower), connect, traverse, loop ----
-const DIAL=2.8, CONNECT=1.4, TRAVERSE=5.0, HOLD=2.2;   // seconds (doubled pacing)
+const DIAL=3.4, CONNECT=2.0, TRAVERSE=5.5, HOLD=2.4;   // seconds (calmer pacing; camera no longer chases each hop)
 function Rig({path,live,liveProg,paused,report,packetState,labelState,railState}){
-  const {camera}=useThree();
-  const acc=useRef(0), focus=useRef(path[0].dir.clone()), rad=useRef(3.2), lastKey=useRef("");
+  const acc=useRef(0), lastKey=useRef("");
   const segs=path.length-1;
   const LOOP=segs*DIAL+CONNECT+TRAVERSE+HOLD;
   const key=path.map(p=>p.label).join("|");
@@ -269,15 +309,9 @@ function Rig({path,live,liveProg,paused,report,packetState,labelState,railState}
     packetState.current={pos:pPos,visible:pVis};
     labelState.current=activeIdx;
     report(activeIdx,phase);
-
-    // camera eases toward the active node; slow
-    const tgt=path[Math.min(activeIdx,path.length-1)].dir;
-    focus.current=slerp(focus.current,tgt,1-Math.pow(0.004,dt));
-    const targetRad=phase==="traverse"||phase==="live"?4.6:3.2;
-    rad.current+=(targetRad-rad.current)*(1-Math.pow(0.02,dt));
-    const up=new THREE.Vector3(0,1,0);
-    camera.position.lerp(focus.current.clone().multiplyScalar(rad.current).add(up.multiplyScalar(0.55)),1-Math.pow(0.02,dt));
-    camera.lookAt(0,0,0);
+    // camera intentionally left alone — OrbitControls auto-rotates the globe at a steady pace.
+    // which hop is live is conveyed by the active label, the pulsing dot and the connection legend,
+    // instead of flying the camera between hops (which caused whiplash).
   });
   return null;
 }
@@ -303,11 +337,27 @@ function Scene({gwIndex,onPick,live,liveProg,paused,report}){
     <${Rig} path=${path} live=${live} liveProg=${liveProg} paused=${paused} report=${report}
       packetState=${packetState} labelState=${labelState} railState=${railState}/>
     <${OrbitControls} enablePan=${false} enableZoom enableRotate minDistance=${2.6} maxDistance=${9}
-      enableDamping dampingFactor=${0.08}/>
+      enableDamping dampingFactor=${0.08} autoRotate autoRotateSpeed=${0.45}/>
   </${React.Fragment}>`;
 }
 
 const PHASES={dial:"dialing path",connect:"path connected",traverse:"request in flight",hold:"reply via surbs",live:"live trace"};
+
+// the route strip that rises above the globe just before traffic crosses the tunnel.
+// it shows every hop and highlights the live one, so the camera can stay still.
+function ConnectionLegend({path,activeIdx,visible,title}){
+  return html`<div class=${"connlegend"+(visible?" show":"")}>
+    <div class="cl-title">${title}</div>
+    <div class="cl-hops">
+      ${path.map((node,i)=>html`<${React.Fragment} key=${"h"+i}>
+        ${i>0?html`<span class=${"cl-arrow"+(i<=activeIdx?" on":"")}>→</span>`:null}
+        <span class=${"cl-hop"+(i===activeIdx?" active":(i<activeIdx?" done":""))}>
+          <span class="cl-dot" style=${{background:node.color,boxShadow:`0 0 6px ${node.color}`}}></span>${node.label}
+        </span>
+      </${React.Fragment}>`)}
+    </div>
+  </div>`;
+}
 
 function App(){
   const paused=useRef(false), liveProg=useRef(0);
@@ -317,9 +367,12 @@ function App(){
   const [info,setInfo]=useState({idx:0,phase:"dial"});
   const [metrics,setMetrics]=useState(null);
   const [status,setStatus]=useState("");
+  const [started,setStarted]=useState(false);
   const wsRef=useRef(null);
 
   useEffect(()=>{const b=document.getElementById("boot");if(b)b.style.display="none";},[]);
+  // the "drag to look" hint stays hidden behind the landing gate, then fades in with the console
+  useEffect(()=>{const h=document.querySelector(".hint");if(h)h.style.opacity=started?"1":"0";},[started]);
   const report=(idx,phase)=>setInfo(p=>(p.idx===idx&&p.phase===phase)?p:{idx,phase});
 
   function goLive(){
@@ -352,13 +405,32 @@ function App(){
   const pct = live ? Math.round(liveProg.current*100) : Math.round(((n+1)/7)*100);
   const fmtBps=v=>v?(v/1e6>=1?(v/1e6).toFixed(2)+" mb/s":(v/1e3).toFixed(0)+" kb/s"):"–";
 
+  // route legend + globe dimming: surface the legend (and dim the globe a touch) once traffic is on the tunnel
+  const path=useMemo(()=>buildPath(gwIndex,live),[gwIndex,live]);
+  const sending = phase==="connect"||phase==="traverse"||phase==="hold";
+  const connVisible = started && (live || sending);
+  const connTitle = live ? "live circuit · streaming"
+    : phase==="connect" ? "tunnel established · opening circuit"
+    : phase==="traverse" ? "request in flight over tunnel"
+    : "awaiting reply via surbs";
+  const dim = !started ? 0.45 : ((live||sending) ? 0.28 : 0);
+
   return html`<${React.Fragment}>
-    <${Canvas} camera=${{position:[0,0.6,3.4],fov:52}} gl=${{antialias:true,alpha:false}} dpr=${[1,2]}
+    <${Canvas} camera=${{position:[0,0.9,5.2],fov:52}} gl=${{antialias:true,alpha:false}} dpr=${[1,2]}
       onCreated=${({gl})=>gl.setClearColor("#02060a")}
       onPointerMissed=${()=>{}}
       onPointerDown=${()=>{paused.current=true;}} onPointerUp=${()=>{paused.current=false;}}>
       <${Scene} gwIndex=${gwIndex} onPick=${setGwIndex} live=${live} liveProg=${liveProg} paused=${paused} report=${report}/>
     </${Canvas}>
+
+    <div class="dim" style=${{opacity:dim}}></div>
+
+    ${!started?html`<div class="landing">
+      <div class="land-title">quicmix</div>
+      <div class="land-sub">a wargames-style trace of an http request crossing a metadata-private mixnet over quic</div>
+      <button class="land-btn" onClick=${()=>setStarted(true)}>▶ start</button>
+      <div class="land-hint">press start to bring up the console</div>
+    </div>`:null}
 
     <div class="hud">
       <div class="frame top">
@@ -367,20 +439,23 @@ function App(){
         <span class="mode">${mode} ${status?("· "+status):""}</span>
       </div>
 
-      <div class="frame ctl">
-        <h4>trace a real load · gateway droplet</h4>
+      ${started?html`<${React.Fragment}>
+      <${ConnectionLegend} path=${path} activeIdx=${n} visible=${connVisible} title=${connTitle}/>
+
+      <div class="frame ctl widget">
+        <h4>fetch a real load · gateway droplet</h4>
         <div class="row">
           <input value=${url} onChange=${e=>setUrl(e.target.value)} placeholder="https://example.com" spellcheck="false"/>
-          <button onClick=${goLive}>trace</button>
+          <button onClick=${goLive}>fetch</button>
         </div>
         <div class="gws">
           ${GATEWAYS.map((g,i)=>html`<div key=${g.id} class=${"gw"+(i===gwIndex?" on":"")} onClick=${()=>setGwIndex(i)}>
             <div>${g.provider}</div><div class="ip">${g.ip}</div></div>`)}
         </div>
-        <div class="note">click a cyan gateway dot on the globe or a tile above · "trace" runs a REAL fetch through that live droplet and streams real metrics (needs the bridge deployed). idle = the demo dial</div>
+        <div class="note">click a cyan gateway dot on the globe or a tile above · "fetch" runs a REAL request through that live droplet and streams real metrics (needs the bridge deployed). idle = the demo dial</div>
       </div>
 
-      <div class="frame metrics">
+      <div class="frame metrics widget">
         <h4>${live?"live metrics":"connection"}</h4>
         <div class="m"><span>egress ip</span><b>${metrics?.egress||(live?"…":"–")}</b></div>
         <div class="m"><span>rtt</span><b>${metrics?.rtt?metrics.rtt.toFixed(1)+" ms":"–"}</b></div>
@@ -390,7 +465,7 @@ function App(){
         <div class="m"><span>status code</span><b>${metrics?.code||"–"}</b></div>
       </div>
 
-      <div class="frame legend">
+      <div class="frame legend widget">
         <h4>substrates on the globe</h4>
         <div class="row"><span class="dot" style=${{color:COLORS.public}}></span> public router / web server</div>
         <div class="row"><span class="dot" style=${{color:COLORS.nym}}></span> nym mix</div>
@@ -400,7 +475,7 @@ function App(){
         <div class="row"><span class="dot" style=${{color:COLORS.gateway}}></span> quicmix gateway (clickable)</div>
       </div>
 
-      <div class="frame panel">
+      <div class="frame panel widget">
         <div class="lbl">step ${live?"live":(n+1+" / 7")} · ${mode}</div>
         <div class="step">${stepName}</div>
         <div class="desc">${live
@@ -408,6 +483,7 @@ function App(){
           : "quicmix dials a multi-hop path through the supported mixnets one hop at a time, then lights the neon rail and flies the request across it — drop in a url to run a real one"}</div>
         <div class="meter"><i style=${{width:pct+"%"}}></i></div>
       </div>
+      </${React.Fragment}>`:null}
     </div>
   </${React.Fragment}>`;
 }
