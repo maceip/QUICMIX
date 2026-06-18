@@ -84,31 +84,18 @@
   .dim{position:fixed;inset:0;z-index:3;background:#02060a;pointer-events:none;opacity:0;transition:opacity .6s ease}
 
   /* landing / start gate */
-  .landing{position:fixed;inset:0;z-index:7;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:15px;text-align:center;padding:0 24px;
-    background:radial-gradient(ellipse at center,rgba(2,6,10,.10),rgba(2,6,10,.55));
-    transition:opacity .5s ease;pointer-events:none}
-  .landing .land-title{font-size:clamp(34px,7vw,46px);letter-spacing:.18em;text-transform:uppercase;color:var(--p);
-    text-shadow:0 0 18px rgba(82,255,143,.55)}
-  .landing .land-sub{font-size:13px;color:#bdffd4;letter-spacing:.04em;max-width:380px;line-height:1.6}
-  .landing .land-btn{pointer-events:auto;margin-top:6px;font:inherit;font-size:15px;font-weight:700;letter-spacing:.14em;
-    text-transform:uppercase;color:#02060a;background:var(--p);border:0;padding:13px 36px;cursor:pointer;
-    box-shadow:0 0 22px rgba(82,255,143,.5);animation:pulseBtn 2.2s ease-in-out infinite}
-  .landing .land-btn:hover{background:#7dffb0;box-shadow:0 0 32px rgba(82,255,143,.8)}
-  @keyframes pulseBtn{50%{box-shadow:0 0 36px rgba(82,255,143,.85)}}
-  .landing .land-hint{font-size:10.5px;color:var(--p-dim);letter-spacing:.06em;text-transform:uppercase}
 
-  /* widgets fade in once the demo has started */
+  /* widgets fade in when the globe ui loads */
   .widget{animation:fadeIn .55s ease both}
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
   /* ── connection legend ── ghost-in-the-shell circuit readout above the globe ── */
   .connlegend{position:fixed;top:58px;left:50%;transform:translate(-50%,-12px);z-index:6;pointer-events:none;
     width:min(640px,calc(100% - 24px));padding:9px 14px 7px;
-    border:1px solid rgba(56,225,255,.35);
-    background:linear-gradient(180deg,rgba(4,16,22,.84),rgba(2,8,12,.74));
-    box-shadow:0 0 26px rgba(56,225,255,.16),inset 0 0 22px rgba(56,225,255,.05);
-    opacity:0;transition:opacity .5s ease,transform .5s ease}
+    border:1px solid rgba(56,225,255,.6);
+    background:linear-gradient(180deg,rgba(6,22,30,.96),rgba(3,11,16,.93));
+    box-shadow:0 0 30px rgba(56,225,255,.32),inset 0 0 18px rgba(56,225,255,.08);
+    opacity:0;transition:opacity .45s ease,transform .45s ease}
   .connlegend.show{opacity:1;transform:translate(-50%,0)}
   /* corner ticks for the hud-frame feel */
   .connlegend::before,.connlegend::after{content:"";position:absolute;width:10px;height:10px;
@@ -128,11 +115,11 @@
   .cl-dot2{transform-box:fill-box;transform-origin:center}
   .cl-dot2.active{animation:cldot 1.3s ease-in-out infinite}
   @keyframes cldot{50%{transform:scale(1.7)}}
-  .cl-lbl{font-family:inherit;fill:#9fe9c7;font-size:9px;letter-spacing:.04em;text-anchor:middle}
-  .cl-lbl.main{fill:#dffff0;font-size:9.5px}
-  .cl-lbl.sub{fill:var(--p-dim);font-size:7.5px;letter-spacing:.12em;text-transform:uppercase}
+  .cl-lbl{font-family:inherit;fill:#bdf3d6;font-size:9px;letter-spacing:.04em;text-anchor:middle}
+  .cl-lbl.main{fill:#eafdff;font-size:9.5px}
+  .cl-lbl.sub{fill:#6fae93;font-size:7.5px;letter-spacing:.12em;text-transform:uppercase}
   /* edges — base wire, a slow blurred "lava" flow + a sharp "electrical" spark sweeping along it */
-  .cl-line{fill:none;stroke:rgba(56,225,255,.42);stroke-width:1.7;filter:drop-shadow(0 0 3px rgba(56,225,255,.4))}
+  .cl-line{fill:none;stroke:rgba(56,225,255,.6);stroke-width:2;filter:drop-shadow(0 0 4px rgba(56,225,255,.55))}
   .cl-lava{fill:none;stroke:#52ff8f;stroke-width:5;stroke-linecap:round;stroke-dasharray:10 46;
     opacity:.30;filter:blur(2.2px);animation:cllava 3.6s ease-in-out infinite}
   .cl-lava.flow{stroke:#5b9bff;opacity:.55;animation-duration:2.1s}
@@ -176,14 +163,13 @@
     .panel .step{font-size:16px}
 
     /* the connection legend drops in under the control panel; reclaim its space when hidden */
-    .connlegend{padding:8px 10px 6px;border-color:rgba(56,225,255,.35)}
+    .connlegend{padding:8px 10px 6px}
     .connlegend:not(.show){display:none}
     .connlegend.show{transform:none}
     .cl-lbl.sub{display:none}            /* drop role captions, keep the node names legible */
     .cl-lbl.main{font-size:13px}
 
     .hint{display:none}                  /* touch users don't need the drag/scroll hint */
-    .landing .land-sub{font-size:12px}
   }
 
   /* landscape phones / very short viewports — vertical room is scarce, so shed the least-critical key */
@@ -345,6 +331,20 @@ function Field({gwIndex,onPick}){
   </group>`;
 }
 
+// even global coverage: a faint, uniformly-distributed dot field (fibonacci sphere) so the globe
+// never has bald patches; the meaningful routers / mixnet clusters / gateways sit brighter on top.
+function FillField(){
+  const obj=useMemo(()=>{
+    const N=340, pos=[], inc=Math.PI*(3-Math.sqrt(5)), off=2/N, rad=R+0.006;
+    for(let i=0;i<N;i++){ const y=i*off-1+off/2; const r=Math.sqrt(Math.max(0,1-y*y)); const phi=i*inc;
+      pos.push(Math.cos(phi)*r*rad, y*rad, Math.sin(phi)*r*rad); }
+    const g=new THREE.BufferGeometry(); g.setAttribute("position",new THREE.Float32BufferAttribute(pos,3));
+    const m=new THREE.PointsMaterial({color:COLORS.public,size:0.02,sizeAttenuation:true,transparent:true,opacity:0.4});
+    return new THREE.Points(g,m);
+  },[]);
+  return html`<primitive object=${obj}/>`;
+}
+
 // the multi-hop path the dial builds. demo = through the mixnets; live = the real gateway hop
 function buildPath(gwIndex,live){
   const g=GATEWAYS[gwIndex];
@@ -399,20 +399,34 @@ function Packet({getState}){
 }
 
 function ActiveLabel({node}){
+  const {camera}=useThree();
+  const ref=useRef();
+  // occlude: a node on the far hemisphere should be hidden by the globe. the label is DOM (not
+  // depth-tested), so hide it when its surface point faces away from the camera.
+  useFrame(()=>{ const el=ref.current; if(!el||!node) return;
+    const camLen=camera.position.length()||1;
+    const facing=node.dir.dot(camera.position)/camLen;       // cos of angle between node dir & view dir
+    el.style.opacity = facing > (R/camLen)+0.03 ? "1" : "0"; // R/camLen ≈ the globe's horizon
+  });
   if(!node) return null;
   return html`<${Html} position=${node.v.toArray()} center distanceFactor=${8} zIndexRange=${[3,0]}>
-    <div class="nodelabel" style=${{color:node.color}}>${node.label}</div></${Html}>`;
+    <div ref=${ref} class="nodelabel" style=${{color:node.color}}>${node.label}</div></${Html}>`;
 }
 
 // ---- the animation driver: dial each hop (2x slower), connect, traverse, loop ----
 const DIAL=3.4, CONNECT=2.0, TRAVERSE=5.5, HOLD=2.4;   // seconds (calmer pacing; camera no longer chases each hop)
-function Rig({path,live,liveProg,paused,report,packetState,labelState,railState}){
+function Rig({path,live,liveProg,paused,report,packetState,labelState,railState,run}){
   const acc=useRef(0), lastKey=useRef("");
   const segs=path.length-1;
   const LOOP=segs*DIAL+CONNECT+TRAVERSE+HOLD;
   const key=path.map(p=>p.label).join("|");
   if(key!==lastKey.current){lastKey.current=key;acc.current=0;}
   useFrame((st,dt)=>{
+    // nothing routes until the user hits fetch — idle globe just spins (autoRotate), no path/packet
+    if(!run){ acc.current=0;
+      railState.current={reveal:0,connected:false};
+      packetState.current={pos:null,visible:false};
+      labelState.current=0; report(0,"idle"); return; }
     if(!paused.current) acc.current+=dt;
     let activeIdx=0, reveal=segs, connected=true, pPos=null, pVis=false, phase="";
     if(live){
@@ -442,7 +456,7 @@ function Rig({path,live,liveProg,paused,report,packetState,labelState,railState}
   return null;
 }
 
-function Scene({gwIndex,onPick,live,liveProg,paused,report}){
+function Scene({gwIndex,onPick,live,liveProg,paused,report,run}){
   const path=useMemo(()=>buildPath(gwIndex,live),[gwIndex,live]);
   const packetState=useRef({pos:null,visible:false});
   const labelState=useRef(0); const railState=useRef({reveal:0,connected:false});
@@ -456,11 +470,12 @@ function Scene({gwIndex,onPick,live,liveProg,paused,report}){
     <${Stars} radius=${120} depth=${60} count=${2400} factor=${4} fade speed=${0.5}/>
     <ambientLight intensity=${0.75}/>
     <${Globe}/>
+    <${FillField}/>
     <${Field} gwIndex=${gwIndex} onPick=${onPick}/>
     <${Rail} path=${path} reveal=${rail.reveal} connected=${rail.connected}/>
     <${Packet} getState=${()=>packetState.current}/>
-    <${ActiveLabel} node=${path[Math.min(labelIdx,path.length-1)]}/>
-    <${Rig} path=${path} live=${live} liveProg=${liveProg} paused=${paused} report=${report}
+    ${run?html`<${ActiveLabel} node=${path[Math.min(labelIdx,path.length-1)]}/>`:null}
+    <${Rig} path=${path} live=${live} liveProg=${liveProg} paused=${paused} report=${report} run=${run}
       packetState=${packetState} labelState=${labelState} railState=${railState}/>
     <${OrbitControls} enablePan=${false} enableZoom enableRotate minDistance=${2.6} maxDistance=${9}
       enableDamping dampingFactor=${0.08} autoRotate autoRotateSpeed=${0.45}/>
@@ -533,19 +548,21 @@ function App(){
   const [info,setInfo]=useState({idx:0,phase:"dial"});
   const [metrics,setMetrics]=useState(null);
   const [status,setStatus]=useState("");
-  const [started,setStarted]=useState(false);
+  // routing only animates after the user hits fetch; until then it's just the idle globe
+  const [run,setRun]=useState(false);
   // the two substrates this circuit happens to ride — re-rolled each loop (unlinkable rotation flavour)
   const [subPair,setSubPair]=useState([MIXNETS[0],MIXNETS[1]]);
   const prevPhase=useRef("");
   const wsRef=useRef(null);
 
-  useEffect(()=>{const b=document.getElementById("boot");if(b)b.style.display="none";},[]);
-  // the "drag to look" hint stays hidden behind the landing gate, then fades in with the console
-  useEffect(()=>{const h=document.querySelector(".hint");if(h)h.style.opacity=started?"1":"0";},[started]);
+  // dismiss the loading screen and reveal the globe ui directly (no start interstitial)
+  useEffect(()=>{const b=document.getElementById("boot");if(b)b.style.display="none";
+    const h=document.querySelector(".hint");if(h)h.style.opacity="1";},[]);
   const report=(idx,phase)=>setInfo(p=>(p.idx===idx&&p.phase===phase)?p:{idx,phase});
 
   function goLive(){
     const g=GATEWAYS[gwIndex];
+    setRun(true);   // kick off the routing animation (live if the bridge answers, demo otherwise)
     setStatus("connecting to bridge…"); setMetrics(null); liveProg.current=0;
     let ws; try{ ws=new WebSocket(BRIDGE); }catch(e){ setStatus("bridge unreachable — demo mode"); return; }
     wsRef.current=ws;
@@ -569,14 +586,15 @@ function App(){
   }
 
   const n=info.idx, phase=info.phase;
-  const stepName=PHASES[phase]||"idle";
-  const mode=live?"live":"demo";
-  const pct = live ? Math.round(liveProg.current*100) : Math.round(((n+1)/7)*100);
+  const stepName = !run ? "standby" : (PHASES[phase]||"running");
+  const mode = live ? "live" : (run ? "demo" : "idle");
+  const pct = !run ? 0 : (live ? Math.round(liveProg.current*100) : Math.round(((n+1)/7)*100));
   const fmtBps=v=>v?(v/1e6>=1?(v/1e6).toFixed(2)+" mb/s":(v/1e3).toFixed(0)+" kb/s"):"–";
 
-  // route legend + globe dimming: surface the legend (and dim the globe a touch) once traffic is on the tunnel
+  // route legend + globe dimming: surface the legend (and dim the globe a touch) once traffic is on the tunnel,
+  // and only after the dial phase has finished (connect onward) — never before the user hits fetch
   const sending = phase==="connect"||phase==="traverse"||phase==="hold";
-  const connVisible = started && (live || sending);
+  const connVisible = run && (live || sending);
   // re-roll the two substrates this circuit rides at the top of each demo loop
   useEffect(()=>{
     if(phase==="dial" && prevPhase.current!=="dial"){
@@ -603,7 +621,7 @@ function App(){
     : phase==="traverse" ? "request in flight · constant cell rate"
     : phase==="hold" ? "holding · reply via reply-surbs"
     : "negotiating circuit";
-  const dim = !started ? 0.45 : ((live||sending) ? 0.28 : 0);
+  const dim = (live||sending) ? 0.28 : 0;
 
   return html`<${React.Fragment}>
     <${Canvas} camera=${{position:[0,0.9,5.2],fov:52}} gl=${{antialias:true,alpha:false}} dpr=${[1,2]}
@@ -611,17 +629,10 @@ function App(){
       onPointerMissed=${()=>{}}
       onPointerDown=${()=>{paused.current=true;}} onPointerUp=${()=>{paused.current=false;}}>
       <${Responsive}/>
-      <${Scene} gwIndex=${gwIndex} onPick=${setGwIndex} live=${live} liveProg=${liveProg} paused=${paused} report=${report}/>
+      <${Scene} gwIndex=${gwIndex} onPick=${setGwIndex} live=${live} liveProg=${liveProg} paused=${paused} report=${report} run=${run}/>
     </${Canvas}>
 
     <div class="dim" style=${{opacity:dim}}></div>
-
-    ${!started?html`<div class="landing">
-      <div class="land-title">quicmix</div>
-      <div class="land-sub">a live 3d demo of quicmix routing an http request across a metadata-private mixnet over quic</div>
-      <button class="land-btn" onClick=${()=>setStarted(true)}>▶ start</button>
-      <div class="land-hint">press start to bring up the console</div>
-    </div>`:null}
 
     <div class="hud">
       <div class="hud-top">
@@ -631,7 +642,6 @@ function App(){
         <span class="mode">${mode} ${status?("· "+status):""}</span>
       </div>
 
-      ${started?html`<${React.Fragment}>
       <div class="frame ctl widget">
         <h4>fetch a real load · gateway droplet</h4>
         <div class="row">
@@ -642,18 +652,19 @@ function App(){
           ${GATEWAYS.map((g,i)=>html`<div key=${g.id} class=${"gw"+(i===gwIndex?" on":"")} onClick=${()=>setGwIndex(i)}>
             <div>${g.provider}</div><div class="ip">${g.ip}</div></div>`)}
         </div>
-        <div class="note">click a cyan gateway dot on the globe or a tile above · "fetch" runs a REAL request through that live droplet and streams real metrics (needs the bridge deployed). idle = the demo dial</div>
+        <div class="note">pick a gateway tile or a cyan dot on the globe, then hit "fetch" — it routes a REAL request through that live droplet and streams real metrics (needs the bridge deployed)</div>
       </div>
 
       <${ConnectionLegend} route=${route} activeIdx=${routeActive} visible=${connVisible} flowing=${flowing} title=${connTitle}/>
-      </${React.Fragment}>`:null}
       </div>
 
-      ${started?html`<div class="hud-bottom">
+      <div class="hud-bottom">
       <div class="frame panel widget">
-        <div class="lbl">step ${live?"live":(n+1+" / 7")} · ${mode}</div>
+        <div class="lbl">step ${!run?"—":(live?"live":(n+1+" / 7"))} · ${mode}</div>
         <div class="step">${stepName}</div>
-        <div class="desc">${live
+        <div class="desc">${!run
+          ? "pick a gateway and hit fetch to route an http request across the mixnet — the path dials hop by hop, then the neon rail carries the request to the origin"
+          : live
           ? "a real quicmix connection to the chosen droplet — the request egresses at the gateway's ip and the rail carries real rtt, congestion-window and throughput"
           : "quicmix dials a multi-hop path through the supported mixnets one hop at a time, then lights the neon rail and flies the request across it — drop in a url to run a real one"}</div>
         <div class="meter"><i style=${{width:pct+"%"}}></i></div>
@@ -678,7 +689,7 @@ function App(){
         <div class="row"><span class="dot" style=${{color:COLORS.hopr}}></span> hopr node</div>
         <div class="row"><span class="dot" style=${{color:COLORS.gateway}}></span> quicmix gateway (clickable)</div>
       </div>
-      </div>`:null}
+      </div>
     </div>
   </${React.Fragment}>`;
 }
