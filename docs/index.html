@@ -235,8 +235,14 @@ const SQ_W=260, SQ_P=26, SQ_A=5.5, SQ_MID=13;   // width, wave period, amplitude
   for(let x=-26;x<=SQ_W;x+=2) d+=" L "+x+" "+(SQ_MID - SQ_A*Math.sin((x/SQ_P)*2*Math.PI)).toFixed(2);
   if(_wave) _wave.setAttribute("d",d);
 })();
-let _target=0.03, _shown=0;
-(function tick(){ _shown += (_target-_shown)*0.14;
+let _target=0.03, _shown=0, _last=performance.now();
+(function tick(now){
+  const dt=Math.min(0.064,((now||_last)-_last)/1000); _last=now||_last;
+  // soft ceiling = confirmed progress + a small anticipation buffer; only the real final unlocks 100%
+  const ceil=_target>=1 ? 1 : Math.min(0.965, _target+0.14);
+  // ease toward the ceiling (fast catch-up when a module resolves) + a constant creep so it never freezes
+  _shown += (ceil-_shown)*(1-Math.exp(-6*dt)) + 0.05*dt;
+  if(_shown>ceil) _shown=ceil;
   if(_rect) _rect.setAttribute("width",(_shown*SQ_W).toFixed(1));
   if(_pct) _pct.textContent=Math.round(_shown*100)+"%";
   if(_boot && _boot.style.display!=="none") requestAnimationFrame(tick);
