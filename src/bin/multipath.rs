@@ -68,7 +68,7 @@ async fn run(up: Arc<dyn MixTransport>, down: Arc<dyn MixTransport>, payload_len
         });
     }
 
-    let front = start_relay(server_addr, up, down).await?;
+    let front = start_relay(server_addr, up, down).await?.front;
 
     let mut roots = rustls::RootCertStore::empty();
     roots.add(cert)?;

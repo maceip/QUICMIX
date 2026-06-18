@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
     eprintln!("bootstrapping client Nym substrate…");
     let surbs: u32 = std::env::var("NYM_SURBS").ok().and_then(|s| s.parse().ok()).unwrap_or(8);
     let sub = Arc::new(NymSubstrate::connect(&gw_addr, surbs, p).await?);
-    let front = spawn_client_bridge(sub).await?;
+    let (front, bridge) = spawn_client_bridge(sub).await?;
 
     // ---- Client quinn endpoint with this arm's transport.
     let mut roots = rustls::RootCertStore::empty();
@@ -126,6 +126,11 @@ async fn main() -> Result<()> {
         lost,
         sent,
         loss_pct
+    );
+    let bm = bridge.metrics();
+    println!(
+        "  substrate boundary: sent={} recv={} send_errors={} dropped={} queue_depth={}",
+        bm.sent, bm.received, bm.send_errors, bm.dropped, bm.queue_depth
     );
     Ok(())
 }

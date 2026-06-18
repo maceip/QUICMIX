@@ -1,0 +1,22 @@
+[package]
+name = "quicmix-hopr"
+version = "0.1.0"
+edition = "2021"
+
+# Real HOPR substrate: implements quicmix::MixTransport over a running hoprd
+# node's REST API (/api/v3/messages). No Rust HOPR client crate exists upstream,
+# so this talks the documented REST protocol directly. Isolated crate.
+
+[dependencies]
+quicmix = { path = ".." }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+base64 = "0.22"
+async-trait = "0.1"
+anyhow = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[dev-dependencies]
+# Raw-TCP mock hoprd for the HTTP-status → typed-error failure tests (#9): a real
+# server returning real 401/500/hang, exercising the real reqwest mapping path.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "net", "io-util"] }

@@ -178,11 +178,13 @@ ticket**.
   per-hop exponential delay, drops, reordering, and an egress pacer honoring the
   constant-rate `slot_interval`. Exposes the **exact** oracle. The UDP mix-relay
   (`src/relay.rs`) drops it into a real UDP path so unmodified quinn runs over it.
-- **Nym** (`src/nym.rs` spec + `REAL_MIXNET.md` runbook): bind `MixTransport` to
-  `nym-sdk` (send/recv + SURB return path; **measured** oracle via
-  `src/oracle.rs`). Two options: live Nym mainnet, or a self-hosted 10–20-node AWS
-  topology that pins configured params for the airtight "known oracle" arm. Not
-  wired in the offline build — it needs a live network.
+- **Nym** (`quicmix-nym/` crate, **real + verified live on mainnet**): binds
+  `MixTransport` to `nym-sdk` (send/recv + SURB return path; **measured** oracle via
+  `src/oracle.rs`), wired end-to-end (`spawn_client_bridge` + `NymGateway`). Real
+  QUIC + quicmix CC carried an HTTP fetch over live Nym; CC A/B and unlinkable
+  rotation verified (`REAL_RESULTS.md`). Tor (`quicmix-tor/`), Katzenpost
+  (`quicmix-katzenpost/`, real CBOR), and HOPR (`quicmix-hopr/`, REST) are likewise
+  separate, real bindings — the heavy network deps stay isolated from the core.
 
 ---
 
@@ -208,23 +210,27 @@ ticket**.
 - Layout:
   ```
   quicmix/
-    DESIGN.md  README.md  REAL_MIXNET.md  PLUGGABILITY.md
+    DESIGN.md  README.md  PLUGGABILITY.md  REAL_RESULTS.md  E2E.md
     src/
-      lib.rs       ← MixTransport seam + OracleParams + SubstrateKind  [done]
+      lib.rs       ← MixTransport seam + OracleParams + SubstrateKind + SubstrateError [done]
       node.rs      ← Node: ONE type, both roles (gateway + ingress)    [done]
-      client.rs    ← client-side plugs: OracleSource/Congestion/Profile[done]
+      client.rs    ← client-side plugs: OracleSource/Congestion/MeasuredCc[done]
       emulator.rs  ← EmulatedMixnet (delay/drop/reorder/finite buffer) [done]
-      relay.rs     ← UDP mix-relay: quinn over the emulator           [done]
+      relay.rs     ← UDP mix-relay: quinn over a Substrate boundary    [done]
+      substrate.rs ← Substrate boundary: pacing + backpressure + metrics[done]
       sched.rs     ← oracle controller (constant window, ignore loss)  [done]
-      rotation.rs  ← unlinkable rotation + pre-warmed pool             [done]
-      oracle.rs    ← online oracle estimator (real substrate)          [done]
+      rotation.rs  ← unlinkable rotation + pre-warmed pool (no resumption)[done]
+      proxy.rs     ← WarmPool: pre-warmed circuits + draining rotation [done]
+      oracle.rs    ← online oracle estimator (bounded recent-RTT window)[done]
       striped.rs   ← round-robin multipath over N substrates           [done]
       directory.rs ← gateway directory + auto-promotion gate           [done]
-      nym.rs       ← Nym datagram-substrate binding                    [spec]
-      katzenpost.rs← Katzenpost datagram-substrate binding             [spec]
-      tor.rs       ← Tor StreamSubstrate + StreamDatagram framing adapter[done adapter, spec arti]
-    src/bin/  quicmix.rs (node)  bench.rs (congestion)  rotate.rs (rotation)  multipath.rs (striping)
-    realprobe/  ← live Nym probe (nym-sdk)
+      ingress.rs   ← hyper http→quic ingress proxy                     [done]
+      metrics.rs   ← observability contract (prometheus exposition)    [done]
+      tor.rs       ← Tor StreamSubstrate + StreamDatagram framing adapter[done]
+    src/bin/  quicmix (node)  bench (congestion)  rotate (rotation)
+              multipath (striping)  proxy (pooled ingress)  gw_serve  ingress_serve
+    quicmix-nym/  quicmix-tor/  quicmix-katzenpost/  quicmix-hopr/  ← real substrate
+                  bindings (isolated crates; heavy network deps stay out of the core)
   ```
 
   **Substrates & multipath.** Datagram substrates (`EmulatedMixnet`, Nym,
@@ -265,12 +271,15 @@ base, not part of the active sprint.
 - [x] Unlinkable rotation + pre-warmed pool; cost + continuity demo (~3.4×).
 - [x] Online oracle estimator (bridge to a measured substrate) + tests.
 - [x] Client-side pluggability (`client.rs`) + substrate pluggability incl. Tor.
-- [~] Real-substrate validation: `realprobe` (nym-sdk) **builds and connects to
-  live Nym mainnet** (topology fetch + gateway selection work). The live
-  *measurement* is blocked by **this sandbox's egress policy** (gateway TCP:9000
-  and UDP:53 DNS both filtered; only HTTPS/443 permitted) — see `REAL_MIXNET.md`.
-  The probe is ready to run from any open-egress host (laptop/AWS); remaining:
-  run it there, calibrate the emulator to the measured numbers, then wire the full
-  QUIC-over-Nym `MixTransport`.
+- [x] Real-substrate validation — **done, verified live on an open-egress laptop**
+  (`REAL_RESULTS.md`): measured `OracleParams` from live Nym/Tor/Katzenpost; real
+  QUIC + quicmix CC end-to-end over Nym mainnet (`nym_e2e`); CC A/B (`nym_bench`);
+  unlinkable rotation (`nym_rotate`); Katzenpost CBOR `SendMessage`→echo→reply
+  (`kp_echo`). The full QUIC-over-Nym `MixTransport` is wired, not a spec.
+- [x] Production hardening — typed `SubstrateError`; `Substrate` boundary (pacing,
+  backpressure, metrics) on every real path; measured-oracle updates feeding new
+  circuits; graceful **draining** rotation; observability contract (`metrics.rs`);
+  failure-mode test matrix. See `E2E.md` and `tests/failure_modes.rs`.
 
-The emulator keeps the sprint unblocked while the real substrate is egress-gated.
+The emulator gives a deterministic, CI-able arm; the real substrates are the
+verified live arm.

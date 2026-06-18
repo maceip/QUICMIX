@@ -52,6 +52,7 @@ pub fn emulated_front(server_addr: SocketAddr, p: OracleParams) -> FrontFactory 
                 Arc::new(EmulatedMixnet::new(p)),
             )
             .await
+            .map(|r| r.front)
             .map_err(anyhow::Error::from)
         })
     })
@@ -74,7 +75,17 @@ pub async fn connect_fresh_with(
     let front = make_front().await?;
     let mut roots = rustls::RootCertStore::empty();
     roots.add(server_cert)?;
-    let mut client_config = ClientConfig::with_root_certificates(Arc::new(roots))?;
+    // Build the TLS config ourselves so we can **explicitly disable resumption**:
+    // with no session store the client can never present a resumption ticket, so
+    // every rotated circuit is a full, cryptographically-independent handshake —
+    // proven by configuration, not just by "fresh endpoint" reasoning.
+    let mut tls = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    tls.resumption = rustls::client::Resumption::disabled();
+    let quic = quinn::crypto::rustls::QuicClientConfig::try_from(tls)
+        .map_err(|e| anyhow::anyhow!("quic client config: {e}"))?;
+    let mut client_config = ClientConfig::new(Arc::new(quic));
     if let Some(t) = transport {
         client_config.transport_config(t);
     }

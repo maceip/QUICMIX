@@ -22,7 +22,7 @@
 use async_trait::async_trait;
 use blake2::digest::consts::U32;
 use blake2::{Blake2b, Digest};
-use quicmix::{MixTransport, OracleParams};
+use quicmix::{MixTransport, OracleParams, SubstrateError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -346,6 +346,24 @@ fn instance_token() -> [u8; 16] {
     out
 }
 
+/// Canonical Katzenpost `OracleParams` — the timing model the oracle-fed CC consumes
+/// for this substrate. Katzenpost is a Loopix/Sphinx mixnet: 3 mix hops with a
+/// per-hop exponential delay and a constant (Poisson) send rate, so it is
+/// **rate-capped** like Nym — never an uncapped link. The numbers here are
+/// representative defaults; derive the exact per-hop delay / send rate from the
+/// daemon's PKI document (its `Mu` / `LambdaP`) on your deployment, the way
+/// `realprobe` measures Nym. A ~1200 B QUIC datagram fits in one Sphinx forward
+/// payload.
+pub fn katzenpost_oracle() -> OracleParams {
+    OracleParams {
+        hops: 3,
+        mean_hop_delay: Duration::from_millis(50),
+        drop_prob: 0.0,
+        slot_interval: Duration::from_millis(30),
+        mtu: 1200,
+    }
+}
+
 /// A Katzenpost [`MixTransport`] over the thin-client daemon, bound to a resolved
 /// service. `send` emits a real `SendMessage`; `recv` returns `MessageReplyEvent`
 /// payloads.
@@ -389,6 +407,15 @@ impl MixTransport for KatzenpostSubstrate {
     }
 
     async fn send(&self, datagram: Vec<u8>) {
+        // Legacy lossy path; production routes through Substrate -> try_send.
+        let _ = self.try_send(datagram).await;
+    }
+
+    async fn recv(&self) -> Option<Vec<u8>> {
+        self.try_recv().await.ok()
+    }
+
+    async fn try_send(&self, datagram: Vec<u8>) -> Result<(), SubstrateError> {
         let req = Request {
             send_message: Some(SendMessage {
                 with_surb: true,
@@ -400,16 +427,21 @@ impl MixTransport for KatzenpostSubstrate {
             ..Default::default()
         };
         let mut w = self.write.lock().await;
-        let _ = write_frame(&mut *w, &req).await;
+        // A write failure means the daemon socket is gone.
+        write_frame(&mut *w, &req)
+            .await
+            .map_err(|e| SubstrateError::Io(format!("katzenpost write: {e}")))
     }
 
-    async fn recv(&self) -> Option<Vec<u8>> {
+    async fn try_recv(&self) -> Result<Vec<u8>, SubstrateError> {
         let mut r = self.read.lock().await;
         loop {
-            let resp = read_frame(&mut *r).await.ok()?;
+            // A read failure on the daemon socket = Closed (e.g. daemon shut down).
+            let resp = read_frame(&mut *r).await.map_err(|_| SubstrateError::Closed)?;
             if let Some(ev) = resp.message_reply_event {
-                return Some(ev.payload);
+                return Ok(ev.payload);
             }
+            // Non-reply events (status/PKI/acks) — keep reading.
         }
     }
 }
@@ -446,5 +478,26 @@ mod tests {
             "0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8";
         let hex: String = got.iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(hex, want);
+    }
+
+    /// The oracle-fed CC must build correctly from Katzenpost's params: a bounded,
+    /// rate-derived BDP window (Katzenpost is a constant-rate Loopix mixnet — never
+    /// the uncapped sentinel), tolerant loss timers, and a 3-hop RTT.
+    #[test]
+    fn cc_builds_from_katzenpost_oracle() {
+        use quicmix::client::{bdp_bytes, Congestion};
+        let p = katzenpost_oracle();
+        for cc in [Congestion::Stock, Congestion::Timers, Congestion::Quicmix] {
+            let _ = cc.transport(&p);
+        }
+        let w = bdp_bytes(&p);
+        assert!(w >= p.mtu as u64 * 2, "window below two cells");
+        assert!(
+            w < 1 << 20,
+            "Katzenpost is rate-capped → BDP must be bounded, got {w}"
+        );
+        assert!(p.loss_time_threshold() >= 1.5);
+        assert_eq!(p.hops, 3);
+        assert!(!p.slot_interval.is_zero(), "must be rate-capped, not uncapped");
     }
 }

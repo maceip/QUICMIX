@@ -12,12 +12,16 @@ use std::time::Duration;
 pub mod client;
 pub mod directory;
 pub mod emulator;
+pub mod ingress;
+pub mod metrics;
 pub mod node;
 pub mod oracle;
+pub mod proxy;
 pub mod relay;
 pub mod rotation;
 pub mod sched;
 pub mod striped;
+pub mod substrate;
 pub mod tor;
 
 /// The kind of anonymity substrate. quicmix targets **datagram** mixnets only;
@@ -94,6 +98,42 @@ impl OracleParams {
 /// bindings, the Tor stream-adapter, and [`striped::Striped`]. Object-safe (via
 /// `async_trait`) so heterogeneous substrates can be combined as
 /// `Arc<dyn MixTransport>` and round-robined.
+/// Typed substrate-boundary errors. Real substrate failures map into these instead
+/// of being silently dropped (`let _ = ...`); [`substrate::Substrate`] increments
+/// metrics and surfaces them to the caller.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubstrateError {
+    /// The substrate is gone (stream / socket / client closed).
+    Closed,
+    /// An operation exceeded its deadline.
+    Timeout,
+    /// A received frame/message could not be parsed.
+    Malformed,
+    /// Authentication/authorization with the substrate failed (e.g. HTTP 401).
+    AuthFailed,
+    /// The remote/gateway rejected the request (e.g. HTTP 5xx, a policy drop).
+    RemoteRejected,
+    /// The send queue is full — the caller is outrunning the paced rate.
+    Backpressure,
+    /// An underlying I/O / library error, with context.
+    Io(String),
+}
+
+impl std::fmt::Display for SubstrateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SubstrateError::Closed => write!(f, "substrate closed"),
+            SubstrateError::Timeout => write!(f, "substrate timeout"),
+            SubstrateError::Malformed => write!(f, "malformed substrate frame"),
+            SubstrateError::AuthFailed => write!(f, "substrate auth failed"),
+            SubstrateError::RemoteRejected => write!(f, "substrate remote rejected"),
+            SubstrateError::Backpressure => write!(f, "substrate send queue full (backpressure)"),
+            SubstrateError::Io(e) => write!(f, "substrate io: {e}"),
+        }
+    }
+}
+impl std::error::Error for SubstrateError {}
+
 #[async_trait::async_trait]
 pub trait MixTransport: Send + Sync {
     /// Datagram substrate (the emulator, Nym, and other datagram mixnets).
@@ -102,8 +142,23 @@ pub trait MixTransport: Send + Sync {
     }
     /// The timing model the scheduler reads instead of inferring from RTT/loss.
     fn oracle(&self) -> OracleParams;
-    /// Submit one datagram into the mix.
+    /// Submit one datagram into the mix (infallible/legacy — see [`MixTransport::try_send`]).
     async fn send(&self, datagram: Vec<u8>);
     /// Receive the next datagram out of the mix (after delay/drop/reorder).
     async fn recv(&self) -> Option<Vec<u8>>;
+
+    /// **Fallible send.** Real substrates override this to map their library/API
+    /// errors into a typed [`SubstrateError`]; production paths call this so a
+    /// failed send is never silently discarded. The default delegates to the
+    /// infallible [`MixTransport::send`] (in-process transports can't fail).
+    async fn try_send(&self, datagram: Vec<u8>) -> Result<(), SubstrateError> {
+        self.send(datagram).await;
+        Ok(())
+    }
+    /// **Fallible receive.** Distinguishes a real datagram from a closed/failed
+    /// substrate. Real substrates override this to map errors; the default maps a
+    /// `None` from [`MixTransport::recv`] to [`SubstrateError::Closed`].
+    async fn try_recv(&self) -> Result<Vec<u8>, SubstrateError> {
+        self.recv().await.ok_or(SubstrateError::Closed)
+    }
 }

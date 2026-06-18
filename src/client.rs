@@ -114,6 +114,99 @@ impl Congestion {
     }
 }
 
+/// Build the oracle-fed `Quicmix` transport but with an explicit, **measured**
+/// loss-detection threshold (a jitter percentile ratio from real RTTs) instead of
+/// the hops-derived structural default. `jitter < 1.5` falls back to the structural
+/// threshold (too few samples to trust). Used to rebuild a circuit's transport from
+/// the latest measured oracle on rotation.
+pub fn quicmix_transport_with_jitter(p: &OracleParams, jitter: f32) -> Arc<TransportConfig> {
+    let mut t = TransportConfig::default();
+    t.initial_rtt(p.rtt());
+    t.packet_threshold(1000);
+    t.time_threshold(if jitter >= 1.5 { jitter } else { p.loss_time_threshold() });
+    let idle = std::cmp::max(Duration::from_secs(30), p.rtt() * 40);
+    if let Ok(t_idle) = IdleTimeout::try_from(idle) {
+        t.max_idle_timeout(Some(t_idle));
+    }
+    t.congestion_controller_factory(Arc::new(OracleCc {
+        window: bdp_bytes(p),
+    }));
+    Arc::new(t)
+}
+
+/// Drives the oracle-fed CC from **live measurements**. Fold real connections in via
+/// [`MeasuredCc::observe`] (their realized RTT + loss feed an [`OracleEstimator`]);
+/// each new circuit's `TransportConfig` is rebuilt from the latest measured oracle
+/// via [`MeasuredCc::transport`], which **logs** every change to the oracle. This is
+/// the bridge from real connection behaviour to the next circuit's CC.
+pub struct MeasuredCc {
+    est: Mutex<OracleEstimator>,
+    last: Mutex<Option<OracleParams>>,
+}
+
+impl MeasuredCc {
+    /// `hops`/`mtu`/`slot_interval` are the structural facts of the chosen route;
+    /// delay and drop are measured from observed connections.
+    pub fn new(hops: u32, mtu: usize, slot_interval: Duration) -> Self {
+        Self {
+            est: Mutex::new(OracleEstimator::new(hops, mtu, slot_interval)),
+            last: Mutex::new(None),
+        }
+    }
+
+    /// Fold a live connection's realized RTT + loss into the measurement.
+    pub fn observe(&self, conn: &quinn::Connection) {
+        self.est.lock().expect("oracle lock").observe_connection(conn);
+    }
+
+    /// Record a directly-observed round-trip (e.g. a probe).
+    pub fn record_rtt(&self, rtt: Duration) {
+        self.est.lock().expect("oracle lock").record_rtt(rtt);
+    }
+
+    /// The current measured oracle.
+    pub fn current(&self) -> OracleParams {
+        self.est.lock().expect("oracle lock").estimate()
+    }
+
+    /// (p50, p90, p99) measured RTT — for the observability layer.
+    pub fn rtt_percentiles(&self) -> (Duration, Duration, Duration) {
+        self.est.lock().expect("oracle lock").rtt_percentiles()
+    }
+
+    /// Number of RTT samples folded in.
+    pub fn samples(&self) -> usize {
+        self.est.lock().expect("oracle lock").samples()
+    }
+
+    /// Build the next circuit's oracle-fed transport from the **latest** measured
+    /// oracle (measured jitter drives the loss timer), logging any change old→new.
+    pub fn transport(&self) -> Arc<TransportConfig> {
+        let (p, jitter) = {
+            let e = self.est.lock().expect("oracle lock");
+            (e.estimate(), e.jitter_ratio())
+        };
+        {
+            let mut last = self.last.lock().expect("oracle last lock");
+            if last.as_ref() != Some(&p) {
+                if let Some(old) = last.as_ref() {
+                    eprintln!(
+                        "[oracle] measured change: rtt {:.0}ms->{:.0}ms  drop {:.3}->{:.3}  jitter×{:.2}  (n={})",
+                        old.rtt().as_secs_f64() * 1e3,
+                        p.rtt().as_secs_f64() * 1e3,
+                        old.drop_prob,
+                        p.drop_prob,
+                        jitter,
+                        self.samples()
+                    );
+                }
+                *last = Some(p);
+            }
+        }
+        quicmix_transport_with_jitter(&p, jitter)
+    }
+}
+
 /// Rotation policy knobs (the client-side plug for unlinkable rotation).
 #[derive(Clone, Copy, Debug)]
 pub struct RotationPolicy {

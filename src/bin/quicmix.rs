@@ -62,12 +62,13 @@ async fn main() -> Result<()> {
 
     // Mix substrate (emulator) between A and B's gateway.
     let buf = ((bdp_bytes(&p) / p.mtu as u64) as usize).max(16);
-    let front = start_relay(
+    let relay = start_relay(
         b_gateway_addr,
         std::sync::Arc::new(EmulatedMixnet::with_queue(p, buf)),
         std::sync::Arc::new(EmulatedMixnet::with_queue(p, buf)),
     )
     .await?;
+    let front = relay.front;
 
     // A connects to B's gateway through the mix (session-warmed link), then runs
     // its local ingress proxy over that link. Same transport on both ends.
@@ -104,6 +105,11 @@ async fn main() -> Result<()> {
         elapsed.as_secs_f64() * 1e3
     );
     println!("origin response:       {:?}", String::from_utf8_lossy(&resp));
+    let m = relay.up.metrics();
+    println!(
+        "substrate boundary:    sent={} recv={} send_errors={} dropped={} queue_depth={}",
+        m.sent, m.received, m.send_errors, m.dropped, m.queue_depth
+    );
 
     use std::io::Write;
     std::io::stdout().flush().ok();

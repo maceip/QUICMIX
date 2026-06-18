@@ -70,7 +70,8 @@ async fn run_once(cc: Congestion, payload_len: usize, p: OracleParams) -> Result
         std::sync::Arc::new(EmulatedMixnet::with_queue(p, buf)),
         std::sync::Arc::new(EmulatedMixnet::with_queue(p, buf)),
     )
-    .await?;
+    .await?
+    .front;
 
     // Client.
     let mut roots = rustls::RootCertStore::empty();

@@ -93,6 +93,7 @@ what real nym shows is that it works at all, and at what rtt/loss.
 | `quicmix-nym/` | nym mainnet (datagram) | full end-to-end; cc + rotation verified live |
 | `quicmix-tor/` | tor via arti (stream) | real circuit; cc inert on a reliable stream |
 | `quicmix-katzenpost/` | katzenpost thin-client daemon | real cbor; pki-resolved `sendmessage`→reply verified live |
+| `quicmix-hopr/` | hopr via `hoprd` rest api | real rest binding; http failure-mapping verified vs a mock; live data path pending a node |
 
 quic runs natively over datagram substrates. tor is a reliable stream, so it's framed
 into datagrams and head-of-line-blocks — a compatible slow leg, not a peer of the
@@ -131,15 +132,18 @@ the laptop downlink is the bottleneck, not the path). full record: `DEPLOY_BENCH
 ## layout
 
 - `src/` — core: `MixTransport`, oracle-fed cc (`client`, `sched`), rotation, emulator,
-  node proxy (ingress + gateway), online oracle estimator.
-- `quicmix-{nym,tor,katzenpost}/` — real substrate bindings; heavy deps isolated so the
-  core build pulls none of them.
+  node proxy (ingress + gateway), online oracle estimator. plus the `substrate`
+  boundary (pacing + bounded-queue backpressure + typed errors), draining `proxy`
+  pool, and the `metrics` observability contract (prometheus exposition).
+- `quicmix-{nym,tor,katzenpost,hopr}/` — real substrate bindings; heavy deps isolated
+  so the core build pulls none of them.
 - `realprobe/`, `torprobe/` — live measurement probes → measured `OracleParams`.
+- `E2E.md` — the end-to-end test matrix (local + live commands, prereqs, captured output).
 
 ## run
 
 ```sh
-cargo test                                                       # core, 13 tests
+cargo test                                                       # core + integration, 34 tests
 cargo run --bin quicmix                                          # ingress → mix-emulator → gateway → origin
 cargo run --bin bench                                            # stock cubic vs quicmix cc
 cargo run --bin rotate                                           # rotation cost + unlinkability

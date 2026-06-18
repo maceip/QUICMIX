@@ -78,19 +78,22 @@ so `tor::StreamSubstrate::open(target) -> TcpStream` is the right shape, **not**
   unlinkable rotation (`NEWNYM`). So the *rotation* capability has a natural
   analogue over Tor, even though the pre-warmed-pool latency win is Tor's to give.
 
-### Stream substrates (Tor) — NON-GOAL (removed)
+### Stream substrates (Tor) — re-added as a datagram adapter (the "slow leg")
 
-We briefly built a Tor (`arti`) `StreamSubstrate` + probe, then **removed it**.
-The reason is the honest verdict above: over a reliable stream, quicmix is a
-**no-op** — it does neither of its two jobs. Tor runs its own congestion control
-on its TCP streams (nothing for our oracle-fed CC to do), and its own circuit
-rotation (`NEWNYM`), so our unlinkable-rotation logic adds nothing. Tunneling QUIC
-over a Tor TCP stream is also an anti-pattern (head-of-line blocking, double CC),
-and Tor's threat model is low-latency, not the global-observer one we target.
+Tor was first removed, then **brought back** — adapted to the datagram model so it
+can join the round-robin alongside the datagram mixnets, rather than as a peer of
+them. The honest verdict above still holds: over a reliable stream quicmix's CC is
+a **no-op** (Tor runs its own congestion control and its own circuit rotation,
+`NEWNYM`), and tunneling QUIC datagrams over one ordered TCP stream
+head-of-line-blocks the whole path — which is exactly why, in the multipath demo,
+the Tor leg behaves like the "slow substrate."
 
-So "plug in Tor" is technically possible but pointless for *this* product: you'd
-just use the Tor stream directly. quicmix's value is specific to **datagram mixnet
-substrates** (`MixTransport`). Stream substrates are out of scope.
+What exists today (`src/tor.rs`, `quicmix-tor/`): a `StreamSubstrate` trait and a
+`StreamDatagram` length-prefix framing adapter that lets a Tor (arti) stream
+present as a `MixTransport` and ride the same round-robin. A real arti circuit
+reached `check.torproject.org` (HTTP 301). Use Tor as a **fallback/compatibility
+leg**, not as a carrier of the datagram model or the global-observer threat model —
+for those, the datagram mixnet path is the real substrate.
 
 ### Capability matrix (substrate × quicmix feature)
 

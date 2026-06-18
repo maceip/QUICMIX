@@ -10,6 +10,10 @@
 use crate::OracleParams;
 use std::time::Duration;
 
+/// Bounded recent-RTT window. Caps memory and keeps the estimate weighted toward
+/// recent observations rather than every tick a long-lived connection survives.
+const MAX_RTT_SAMPLES: usize = 256;
+
 /// Accumulates observed path round-trips and ack/loss counts, then produces a
 /// measured [`OracleParams`]. `hops`, `mtu`, and `slot_interval` are structural
 /// facts known from the chosen route/policy; delay and drop are measured.
@@ -35,8 +39,14 @@ impl OracleEstimator {
         }
     }
 
-    /// Record one observed round-trip (e.g. a probe or first stream RTT).
+    /// Record one observed round-trip (e.g. a probe or first stream RTT). The buffer
+    /// is a bounded recent window (`MAX_RTT_SAMPLES`): repeated sampling of the same
+    /// long-lived connection can't grow memory without bound or let stale samples
+    /// dominate the percentiles — recent observations win.
     pub fn record_rtt(&mut self, rtt: Duration) {
+        if self.rtt_ns.len() >= MAX_RTT_SAMPLES {
+            self.rtt_ns.remove(0); // drop oldest; window stays ≤ MAX_RTT_SAMPLES
+        }
         self.rtt_ns.push(rtt.as_nanos());
     }
 
@@ -44,6 +54,34 @@ impl OracleEstimator {
     pub fn record_acks(&mut self, sent: u64, lost: u64) {
         self.sent = sent;
         self.lost = lost;
+    }
+
+    /// Number of RTT samples folded in so far.
+    pub fn samples(&self) -> usize {
+        self.rtt_ns.len()
+    }
+
+    /// (p50, p90, p99) of the observed RTT distribution — the measured spread the
+    /// observability layer exports and the loss timer is derived from.
+    pub fn rtt_percentiles(&self) -> (Duration, Duration, Duration) {
+        if self.rtt_ns.is_empty() {
+            return (Duration::ZERO, Duration::ZERO, Duration::ZERO);
+        }
+        let mut v = self.rtt_ns.clone();
+        v.sort_unstable();
+        let pick = |q: f64| -> Duration {
+            let idx = (((v.len() - 1) as f64) * q).round() as usize;
+            Duration::from_nanos(v[idx] as u64)
+        };
+        (pick(0.50), pick(0.90), pick(0.99))
+    }
+
+    /// Fold a live quinn connection's realized RTT + loss into the estimate — the
+    /// bridge from a real connection's behaviour to the measured oracle.
+    pub fn observe_connection(&mut self, conn: &quinn::Connection) {
+        self.record_rtt(conn.rtt());
+        let s = conn.stats();
+        self.record_acks(s.path.sent_packets, s.path.lost_packets);
     }
 
     /// Median observed RTT in nanoseconds (robust to mix-delay outliers).

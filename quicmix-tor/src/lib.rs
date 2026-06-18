@@ -12,7 +12,7 @@
 use arti_client::{TorClient, TorClientConfig};
 use async_trait::async_trait;
 use quicmix::tor::StreamDatagram;
-use quicmix::{MixTransport, OracleParams, SubstrateKind};
+use quicmix::{MixTransport, OracleParams, SubstrateError, SubstrateKind};
 use std::sync::Arc;
 use tor_rtcompat::PreferredRuntime;
 
@@ -48,5 +48,11 @@ impl MixTransport for TorSubstrate {
     }
     async fn recv(&self) -> Option<Vec<u8>> {
         self.inner.recv().await
+    }
+    async fn try_send(&self, datagram: Vec<u8>) -> Result<(), SubstrateError> {
+        self.inner.try_send(datagram).await
+    }
+    async fn try_recv(&self) -> Result<Vec<u8>, SubstrateError> {
+        self.inner.try_recv().await
     }
 }

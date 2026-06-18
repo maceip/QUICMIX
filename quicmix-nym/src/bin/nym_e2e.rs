@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
     eprintln!("bootstrapping client Nym substrate to mainnet…");
     let surbs: u32 = std::env::var("NYM_SURBS").ok().and_then(|s| s.parse().ok()).unwrap_or(8);
     let sub = Arc::new(NymSubstrate::connect(&gw_addr, surbs, p).await?);
-    let front = spawn_client_bridge(sub).await?;
+    let (front, bridge) = spawn_client_bridge(sub).await?;
     eprintln!("client bridge front (quinn connects here): {front}");
 
     // ---- Node A opens a quicmix QUIC connection to B *through the live mix*.
@@ -125,6 +125,11 @@ async fn main() -> Result<()> {
         elapsed.as_secs_f64()
     );
     println!("origin response:       {:?}", String::from_utf8_lossy(&resp));
+    let m = bridge.metrics();
+    println!(
+        "substrate boundary:    sent={} recv={} send_errors={} dropped={} queue_depth={}",
+        m.sent, m.received, m.send_errors, m.dropped, m.queue_depth
+    );
 
     use std::io::Write;
     std::io::stdout().flush().ok();

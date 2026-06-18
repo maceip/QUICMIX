@@ -20,7 +20,7 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 
 fn make_cert() -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>)> {
     let c = rcgen::generate_simple_self_signed(vec!["localhost".into()])?;
@@ -72,9 +72,16 @@ impl Node {
     /// with a `"host:port\n"` target, which this node dials and splices. Always
     /// on — this is what makes the node usable as someone else's exit.
     pub async fn serve_gateway(&self) -> Result<(Endpoint, SocketAddr)> {
+        self.serve_gateway_at("127.0.0.1:0".parse()?).await
+    }
+
+    /// **Gateway role, bound to `bind`.** Same as [`Node::serve_gateway`] but binds
+    /// the QUIC server to an explicit address (e.g. `0.0.0.0:4433` for a real
+    /// cross-machine deployment), not just loopback.
+    pub async fn serve_gateway_at(&self, bind: SocketAddr) -> Result<(Endpoint, SocketAddr)> {
         let mut sc = ServerConfig::with_single_cert(vec![self.cert.clone()], self.key.clone_key())?;
         sc.transport_config(self.transport.clone());
-        let endpoint = Endpoint::server(sc, "127.0.0.1:0".parse()?)?;
+        let endpoint = Endpoint::server(sc, bind)?;
         let addr = endpoint.local_addr()?;
         let ep = endpoint.clone();
         tokio::spawn(async move {
@@ -97,30 +104,34 @@ impl Node {
     /// oracle-fed transport as the gateway side. (Pre-establishing this is the
     /// "session warming" — keep a `rotation::CircuitPool` of these ready.)
     pub async fn connect(&self, front: SocketAddr, peer_cert: CertificateDer<'static>) -> Result<Link> {
+        self.connect_via("127.0.0.1:0".parse()?, front, peer_cert).await
+    }
+
+    /// **Client role, bound to `bind`.** Same as [`Node::connect`] but binds the
+    /// local QUIC client socket to an explicit address — use `0.0.0.0:0` to reach a
+    /// gateway on a public IP (the loopback bind in [`Node::connect`] can only talk
+    /// to `127.0.0.1`).
+    pub async fn connect_via(
+        &self,
+        bind: SocketAddr,
+        front: SocketAddr,
+        peer_cert: CertificateDer<'static>,
+    ) -> Result<Link> {
         let mut roots = rustls::RootCertStore::empty();
         roots.add(peer_cert)?;
         let mut cc = ClientConfig::with_root_certificates(Arc::new(roots))?;
         cc.transport_config(self.transport.clone());
-        let mut endpoint = Endpoint::client("127.0.0.1:0".parse()?)?;
+        let mut endpoint = Endpoint::client(bind)?;
         endpoint.set_default_client_config(cc);
         let conn = Arc::new(endpoint.connect(front, "localhost")?.await?);
         Ok(Link { endpoint, conn })
     }
 
-    /// **Ingress role.** Run a local HTTP proxy on `listen`, carrying traffic over
-    /// `conn` (a connection to a peer's gateway from [`Node::connect`]).
+    /// **Ingress role.** Run the local HTTP(S) proxy on `listen`, carrying traffic
+    /// over `conn`. Delegates to the single hyper-based ingress
+    /// ([`crate::ingress::serve`]) — one proxy code path everywhere.
     pub async fn serve_ingress(&self, listen: &str, conn: Arc<Connection>) -> Result<SocketAddr> {
-        let l = TcpListener::bind(listen).await?;
-        let addr = l.local_addr()?;
-        tokio::spawn(async move {
-            while let Ok((sock, _)) = l.accept().await {
-                let conn = conn.clone();
-                tokio::spawn(async move {
-                    let _ = handle_client(sock, conn).await;
-                });
-            }
-        });
-        Ok(addr)
+        crate::ingress::serve(listen, conn).await
     }
 }
 
@@ -145,93 +156,4 @@ async fn gateway_stream(mut send: SendStream, recv: RecvStream) -> Result<()> {
     };
     tokio::join!(up, down);
     Ok(())
-}
-
-async fn handle_client(sock: TcpStream, conn: Arc<Connection>) -> Result<()> {
-    let mut br = BufReader::new(sock);
-    let mut request_line = String::new();
-    br.read_line(&mut request_line).await?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or("").to_string();
-    let uri = parts.next().unwrap_or("").to_string();
-
-    if method.eq_ignore_ascii_case("CONNECT") {
-        drain_headers(&mut br).await?;
-        br.get_mut()
-            .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-            .await?;
-        let (mut send, recv) = conn.open_bi().await?;
-        send.write_all(format!("{uri}\n").as_bytes()).await?;
-        splice_client(br, send, recv).await
-    } else if let Some((host, port, path)) = parse_absolute(&uri) {
-        let (mut send, recv) = conn.open_bi().await?;
-        send.write_all(format!("{host}:{port}\n").as_bytes()).await?;
-        send.write_all(format!("{method} {path} HTTP/1.0\r\nHost: {host}\r\n").as_bytes())
-            .await?;
-        forward_headers(&mut br, &mut send).await?;
-        send.write_all(b"Connection: close\r\n\r\n").await?;
-        splice_client(br, send, recv).await
-    } else {
-        let _ = br
-            .get_mut()
-            .write_all(b"HTTP/1.1 400 Bad Request\r\n\r\n")
-            .await;
-        Ok(())
-    }
-}
-
-async fn splice_client(client: BufReader<TcpStream>, mut send: SendStream, mut recv: RecvStream) -> Result<()> {
-    let (mut cr, mut cw) = tokio::io::split(client);
-    let up = async {
-        let _ = tokio::io::copy(&mut cr, &mut send).await;
-        let _ = send.finish();
-    };
-    let down = async {
-        let _ = tokio::io::copy(&mut recv, &mut cw).await;
-        let _ = cw.shutdown().await;
-    };
-    tokio::join!(up, down);
-    Ok(())
-}
-
-async fn drain_headers(br: &mut BufReader<TcpStream>) -> Result<()> {
-    let mut line = String::new();
-    loop {
-        line.clear();
-        let n = br.read_line(&mut line).await?;
-        if n == 0 || line == "\r\n" || line == "\n" {
-            break;
-        }
-    }
-    Ok(())
-}
-
-async fn forward_headers(br: &mut BufReader<TcpStream>, send: &mut SendStream) -> Result<()> {
-    let mut line = String::new();
-    loop {
-        line.clear();
-        let n = br.read_line(&mut line).await?;
-        if n == 0 || line == "\r\n" || line == "\n" {
-            break;
-        }
-        let lower = line.to_ascii_lowercase();
-        if lower.starts_with("proxy-") || lower.starts_with("connection:") {
-            continue;
-        }
-        send.write_all(line.as_bytes()).await?;
-    }
-    Ok(())
-}
-
-fn parse_absolute(uri: &str) -> Option<(String, u16, String)> {
-    let rest = uri.strip_prefix("http://")?;
-    let (authority, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, "/"),
-    };
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) => (h.to_string(), p.parse().unwrap_or(80)),
-        None => (authority.to_string(), 80),
-    };
-    Some((host, port, path.to_string()))
 }

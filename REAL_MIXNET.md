@@ -1,14 +1,17 @@
 # Running quicmix over a real mixnet
 
-The emulator (`EmulatedMixnet`) lets us develop and measure offline with an exact
-oracle. To validate on a **real** mixnet, swap the substrate behind
-`MixTransport` for a Nym binding (`src/nym.rs`). Two options; pick by how much
-control you need.
+> **SUPERSEDED — historical planning doc (2026-06-16).** Its two "options" were
+> executed and the binding is **built and verified live**. The Nym binding is no
+> longer `src/nym.rs` (a spec) but the real **`quicmix-nym/`** crate, wired
+> end-to-end and run over Nym mainnet. For what actually runs and the measured
+> numbers see **`REAL_RESULTS.md`** (authoritative record) and **`E2E.md`** (test
+> matrix); for the multi-cloud deploy see **`DEPLOY_BENCHMARK.md`**. The rest of
+> this file is kept for the design rationale behind the live/self-hosted choice.
 
-> Status: `realprobe/` is a **working, compiled** Nym mainnet probe (uses
-> `nym-sdk`). The online oracle estimator it feeds (`src/oracle.rs`) is
-> implemented and tested. The full QUIC-over-Nym `MixTransport` binding
-> (`src/nym.rs`) is specified, not yet wired.
+The emulator (`EmulatedMixnet`) lets us develop and measure offline with an exact
+oracle. To validate on a **real** mixnet, swap the substrate behind `MixTransport`
+for the Nym binding (now `quicmix-nym/`). Two options; pick by how much control you
+need.
 
 ## What we verified in-environment (and the egress block)
 

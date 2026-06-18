@@ -14,9 +14,18 @@
 //! here — it needs a live Tor network (egress-blocked in CI). The framing adapter
 //! below is real and tested.
 
-use crate::{MixTransport, OracleParams, SubstrateKind};
+use crate::{MixTransport, OracleParams, SubstrateError, SubstrateKind};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Mutex;
+
+/// Map a stream I/O error into a typed [`SubstrateError`] (EOF = the Tor stream closed).
+fn map_io(e: std::io::Error) -> SubstrateError {
+    if e.kind() == std::io::ErrorKind::UnexpectedEof {
+        SubstrateError::Closed
+    } else {
+        SubstrateError::Io(format!("tor stream: {e}"))
+    }
+}
 
 /// A bidirectional byte stream — `TcpStream`, arti `DataStream`, etc.
 pub trait Stream: AsyncRead + AsyncWrite + Unpin + Send {}
@@ -63,23 +72,30 @@ impl MixTransport for StreamDatagram {
         self.oracle
     }
     async fn send(&self, datagram: Vec<u8>) {
-        let mut w = self.write.lock().await;
-        let len = (datagram.len() as u32).to_be_bytes();
-        let _ = w.write_all(&len).await;
-        let _ = w.write_all(&datagram).await;
-        let _ = w.flush().await;
+        let _ = self.try_send(datagram).await;
     }
     async fn recv(&self) -> Option<Vec<u8>> {
+        self.try_recv().await.ok()
+    }
+    async fn try_send(&self, datagram: Vec<u8>) -> Result<(), SubstrateError> {
+        let mut w = self.write.lock().await;
+        let len = (datagram.len() as u32).to_be_bytes();
+        w.write_all(&len).await.map_err(map_io)?;
+        w.write_all(&datagram).await.map_err(map_io)?;
+        w.flush().await.map_err(map_io)?;
+        Ok(())
+    }
+    async fn try_recv(&self) -> Result<Vec<u8>, SubstrateError> {
         let mut r = self.read.lock().await;
         let mut len = [0u8; 4];
-        r.read_exact(&mut len).await.ok()?;
+        r.read_exact(&mut len).await.map_err(map_io)?;
         let n = u32::from_be_bytes(len) as usize;
         if n > (1 << 20) {
-            return None;
+            return Err(SubstrateError::Malformed);
         }
         let mut buf = vec![0u8; n];
-        r.read_exact(&mut buf).await.ok()?;
-        Some(buf)
+        r.read_exact(&mut buf).await.map_err(map_io)?;
+        Ok(buf)
     }
 }
 
