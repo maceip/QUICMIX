@@ -29,16 +29,21 @@ primitive
 
 ## data path
 
+```mermaid
+flowchart LR
+  app(["your app"]):::ext -->|http| A
+  subgraph QX ["one quicmix transport · oracle-fed cc + unlinkable rotation, end to end"]
+    direction LR
+    A["ingress (a)"]:::qx -->|"quic · constant cell rate<br/>nym · tor · katzenpost · hopr"| B["gateway (b)"]:::qx
+  end
+  B -->|tcp| O(["origin · clearweb"]):::ext
+  O -.->|"reply via reply-surbs"| B
+  classDef qx fill:#06281a,stroke:#5cff9a,color:#dffff0,stroke-width:1px
+  classDef ext fill:#0a1622,stroke:#7df9ff,color:#cfe,stroke-width:1px
 ```
-   ┌──────┐  http   ┌────────────────┐    quic over the mixnet     ┌────────────────┐  tcp   ┌──────────┐
-   │ app  │ ──────▶ │  quicmix        │ ─ hopr / nym / tor / katz ─▶ │  quicmix        │ ─────▶ │  origin  │
-   │      │ ◀────── │  ingress  (a)   │ ◀──── 3 sphinx hops ──────── │  gateway  (b)   │ ◀───── │ clearweb │
-   └──────┘         └────────────────┘     (constant cell rate)      └────────────────┘        └──────────┘
-                     oracle-fed cc + unlinkable rotation                terminates quic
-                                                                        egresses, returns via surbs
 
-   both ends are the same quicmix node → cc + rotation run end-to-end (it's a transport optimization)
-```
+both ends are the same quicmix node, so the oracle-fed cc and unlinkable rotation run
+end to end — it's a transport optimization, not a new network
 
 ## how it plugs in
 
@@ -121,6 +126,49 @@ measured on a laptop with open egress — full record in [`docs/results.md`](doc
 honest read — on real nym the cc gain is muted (near-zero real loss) and the rotation
 *cost* win doesn't reproduce (per-request mix latency dominates), what holds live is the
 unlinkability. the emulator's large numbers are the emulator flattering itself
+
+## using multiple mixnets and the global passive observer
+
+quicmix is a **transport**, not an anonymity primitive — it rides whatever anonymity the
+substrate underneath already provides and cannot exceed it. it can only spend that
+anonymity carefully or waste it, never manufacture it, so the honest question isn't "how
+anonymous is quicmix" but "what does quicmix do to the substrate's anonymity"
+
+the **global passive observer** (gpa) — an adversary watching every link at once — is the
+hard threat, and each substrate answers it differently; quicmix inherits that answer
+unchanged
+
+- nym / katzenpost aim to resist a gpa with cover traffic, mixing, and a constant cell rate
+- tor explicitly does **not** — it is low-latency and loses to end-to-end correlation by a gpa
+
+what quicmix's two mechanisms do for anonymity is **do-no-harm**, not magic
+
+- **constant cell rate** preserves the substrate's traffic-analysis resistance — a naive quic over a mixnet would burst to recover loss and punch a recognizable shape through the cover; quicmix paces to the mix rate and arq-recovers within budget, so it doesn't leak that fingerprint
+- **unlinkable rotation** keeps the transport layer from linking your sessions over time (fresh keys, source, circuit), within a single substrate
+
+the real caveat — **striping one flow across multiple mixnets can reduce anonymity, not
+increase it**. multipath is a performance/availability feature, so treat it as an anonymity
+*cost*
+
+| | single strong mixnet | striped across several |
+|---|---|---|
+| who sees "a quicmix user" | one network | the union of all of them |
+| gpa correlation | one substrate's story | sub-flows of one session correlate across substrates (timing / volume / start-stop) |
+| effective anonymity set | that substrate's | the **weakest leg** on the path |
+
+splitting one logical flow across nym + tor + katzenpost at once doesn't hide it — a global
+observer that sees several of those substrates can stitch the sub-flows back together, and
+your protection drops to the weakest leg; if one leg is tor (no gpa resistance) a gpa can
+deanonymize through that leg no matter how strong the others are
+
+**guidance** — for the strongest anonymity use a *single* strong datagram mixnet (nym or
+katzenpost) and let quicmix preserve its properties; reach for multipath only when your
+threat model is availability or performance rather than a global observer, and accept the
+wider exposure. tor stays the compat / slow leg, useful for reach, not for the gpa threat
+
+bottom line: quicmix doesn't lower a single substrate's anonymity, but combining substrates
+trades anonymity for performance — more networks see you, and a global observer can correlate
+across them; **anonymity is bounded by the weakest leg you use**
 
 ## deployed (multi-cloud)
 

@@ -1,0 +1,21 @@
+[package]
+name = "quicmix-bridge"
+version = "0.1.0"
+edition = "2021"
+
+# Live demo bridge: a websocket service that runs REAL quicmix proxy fetches through
+# a chosen live gateway and streams the real quinn connection metrics (rtt, cwnd,
+# lost/sent, bytes) + logs back to the browser globe. The browser cannot proxy or
+# speak quic itself, so this server-side bridge is what makes the page's "load a
+# webpage over the network" real. Isolated crate (path-dep on the core).
+
+[dependencies]
+quicmix = { path = ".." }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+url = "2"
