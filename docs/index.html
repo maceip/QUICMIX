@@ -332,6 +332,12 @@ const R = 2, LIFT = 0.42;
 // quicmix-bounce is deployed, set this to its url (e.g. "https://64.226.93.43.nip.io/bounce").
 const BOUNCE = "";
 
+// the live-demo bridge (quicmix-bridge behind caddy auto-tls). it opens a REAL quicmix quic link to
+// the chosen gateway, runs the fetch through it, and streams the real quinn connection stats (rtt,
+// cwnd, lost/sent, throughput) + the verified egress ip over this websocket. all metrics shown in the
+// ui come from here — nothing is synthesised. only the globe animation is illustrative.
+const BRIDGE_WS = "wss://64.226.93.43.nip.io";
+
 const COLORS = { public:"#3ad17a", nym:"#ff9e3d", tor:"#9d7bff", katzenpost:"#2ee6c0", hopr:"#ffd23f",
                  gateway:"#38e1ff", origin:"#ffffff", rail:"#3b82f6" };
 
@@ -663,7 +669,7 @@ function ConnectionLegend({legend,visible,flowing,title,cls=""}){
       <span class="cl-title">${title}</span>
       <span class=${"cl-jp"+(flowing?" act":"")}>${flowing?"通信中":"待機"}</span>
     </div>
-    <div class="cl-hops">next hop <b>→ ${legend.gateway.ip}</b> · ${legend.gateway.city}
+    <div class="cl-hops">client next hop <b>→ ${legend.gateway.ip}</b> · ${legend.gateway.city}${legend.verified?html`<span style=${{color:"#52ff8f",marginLeft:"5px"}}>✓ live egress</span>`:legend.offline?html`<span style=${{color:"#ff7a7a",marginLeft:"5px"}}>bridge offline</span>`:""}
       <span class="cl-sep">·</span> gateway prev hop <b>← ingress (you)</b></div>
     <svg class="cl-svg" viewBox="0 0 620 126" preserveAspectRatio="xMidYMid meet">
       ${edges.map((e,i)=>html`<${React.Fragment} key=${"e"+i}>
@@ -706,8 +712,9 @@ function StatusRail({metrics,hist,gateway}){
     <div class="rail-cell rail-head"><span class="cl-jp">接続</span><div class="rail-v">connection</div></div>
     ${cell("latency", metrics?.rtt?metrics.rtt.toFixed(0)+" ms":"–", hist.rtt, "#38e1ff")}
     ${cell("throughput", fmtBps(metrics?.bps), hist.bps, "#52ff8f")}
-    ${cell("cwnd", metrics?.cwnd?(metrics.cwnd/1024).toFixed(0)+" kb":"–", hist.cwnd, "#ffb53d")}
-    ${cell("next hop", gateway?.ip||"–", null, "#38e1ff")}
+    ${cell("cwnd", fmtBytes(metrics?.cwnd), hist.cwnd, "#ffb53d")}
+    ${cell("prev hop", "ingress (you)", null, "#bdffd4")}
+    ${cell("next hop", metrics?.egress||gateway?.ip||"–", null, "#38e1ff")}
     ${cell("geo", gateway?.city||"–", null, "#bdffd4")}
   </div>`;
 }
@@ -716,12 +723,16 @@ function StatusRail({metrics,hist,gateway}){
 function hostOf(u){ try{ return new URL(/^https?:\/\//i.test(u)?u:("https://"+u)).hostname; }
   catch{ return (u||"").replace(/^https?:\/\//i,"").split("/")[0]||"destination"; } }
 function urlOf(u){ return /^https?:\/\//i.test(u)?u:("https://"+u); }
-const fmtBps=v=>v?(v/1e6>=1?(v/1e6).toFixed(2)+" mb/s":(v/1e3).toFixed(0)+" kb/s"):"–";
+// the bridge reports throughput + cwnd in BYTES, so format with byte units (B/s, KB/s, MB/s).
+const fmtBps=v=>(v&&v>0)?(v>=1048576?(v/1048576).toFixed(2)+" MB/s":v>=1024?(v/1024).toFixed(0)+" KB/s":v.toFixed(0)+" B/s"):"–";
+const fmtBytes=b=>(b&&b>0)?(b>=1048576?(b/1048576).toFixed(1)+" MB":b>=1024?(b/1024).toFixed(0)+" KB":b+" B"):"–";
 
 function App(){
   // staged flow: intro (enter url) → dialing (path dials up) → traffic (data flows) → loaded (page in iframe)
   const dialRef=useRef(0), trafRef=useRef(0);
-  const [gwIndex,setGwIndex]=useState(0);
+  // default to nyc3: the bridge runs on the fra1 droplet, so routing through fra1 is a same-host
+  // loopback (sub-ms, no real path); nyc3 is a genuine cross-datacenter hop with representative live stats.
+  const [gwIndex,setGwIndex]=useState(1);
   const [url,setUrl]=useState("https://www.example.com");
   const [stage,setStage]=useState("intro");
   const [metrics,setMetrics]=useState(null);
@@ -729,6 +740,9 @@ function App(){
   // the ONE substrate this circuit rides (re-rolled per fetch); the others show as parallel options
   const [activeMix,setActiveMix]=useState(0);
   const histRef=useRef({rtt:[],bps:[],cwnd:[]});   // recent series for the status-rail sparklines
+  // live bridge: status of the REAL quic run streamed from quicmix-bridge over wss
+  const [bridge,setBridge]=useState({status:"idle", err:null});   // idle|connecting|streaming|done|offline|error
+  const wsRef=useRef(null), settledRef=useRef(false), cwndRef=useRef(null);
 
   // hand off from the loading screen to the globe ui directly (no start interstitial)
   useEffect(()=>{
@@ -737,33 +751,61 @@ function App(){
     const h=document.querySelector(".hint"); if(h) h.style.opacity="1";
   },[]);
 
+  function closeWs(){ try{ wsRef.current&&wsRef.current.close(); }catch{} wsRef.current=null; }
+
+  // open a REAL run on the bridge: stream the verified egress + live quinn stats into `metrics`.
+  // the globe animation is independent + illustrative; every number shown here comes off this socket.
+  function openBridge(target, gateway){
+    closeWs(); settledRef.current=false; cwndRef.current=null;
+    const settle=(status,extra)=>{ if(settledRef.current && status!=="error") return; settledRef.current=true; setBridge(b=>({...b,status,...(extra||{})})); };
+    let ws; try{ ws=new WebSocket(BRIDGE_WS); }catch(e){ setBridge({status:"offline",err:String(e&&e.message||e)}); return; }
+    wsRef.current=ws;
+    setBridge({status:"connecting", err:null});
+    const offlineTimer=setTimeout(()=>{ if(!settledRef.current){ setBridge(b=>({...b,status:"offline",err:"no response"})); settledRef.current=true; } }, 20000);
+    ws.onopen=()=>{ try{ ws.send(JSON.stringify({url:target, gateway})); }catch{} };
+    ws.onmessage=(ev)=>{
+      let m; try{ m=JSON.parse(ev.data); }catch{ return; }
+      if(m.type==="connected"){ setBridge(b=>({...b,status:"streaming",handshake:m.handshake_ms})); }
+      else if(m.type==="egress"){ setMetrics(p=>({...(p||{}), egress:m.ip})); setBridge(b=>({...b,status:"streaming"})); }
+      else if(m.type==="sample"){
+        cwndRef.current=m.cwnd;
+        const H=histRef.current; H.rtt.push(m.rtt_ms); H.bps.push(m.throughput_bps); H.cwnd.push(m.cwnd);
+        if(H.rtt.length>46){H.rtt.shift();H.bps.shift();H.cwnd.shift();}
+        setMetrics(p=>({...(p||{}), rtt:m.rtt_ms, bps:m.throughput_bps, cwnd:m.cwnd, lost:m.lost_packets, sent:m.sent_packets}));
+        setBridge(b=>({...b,status:"streaming"}));
+      } else if(m.type==="done"){
+        const f=m.fetch||{};
+        setMetrics(p=>({...(p||{}), rtt:m.rtt_ms, bps:f.speed, cwnd:cwndRef.current, lost:m.lost_packets, sent:m.sent_packets, code:f.code, bytes:f.bytes, ttfb:f.ttfb, total:f.total}));
+        clearTimeout(offlineTimer); settle("done");
+      } else if(m.type==="error"){ clearTimeout(offlineTimer); settle("error",{err:m.msg}); }
+    };
+    ws.onerror=()=>{ clearTimeout(offlineTimer); if(!settledRef.current){ setBridge(b=>({...b,status:"offline",err:"connection failed"})); settledRef.current=true; } };
+    ws.onclose=()=>{ clearTimeout(offlineTimer); if(!settledRef.current){ setBridge(b=>({...b,status:"offline",err:"closed early"})); settledRef.current=true; } };
+  }
+
   function startFetch(){
     setActiveMix(Math.floor(Math.random()*MIXNETS.length));
     histRef.current={rtt:[],bps:[],cwnd:[]};
-    dialRef.current=0; trafRef.current=0; setMetrics(null); setStage("dialing");
+    dialRef.current=0; trafRef.current=0; setMetrics(null);
+    openBridge(urlOf(url), GATEWAYS[gwIndex].id);
+    setStage("dialing");
   }
-  function reset(){ dialRef.current=0; trafRef.current=0; setMetrics(null); setStage("intro"); }
+  function reset(){ closeWs(); dialRef.current=0; trafRef.current=0; setMetrics(null); setBridge({status:"idle",err:null}); setStage("intro"); }
 
-  // stage driver — advance the active phase's progress on rAF, synth metrics during traffic, then advance the stage
+  // stage driver — advances the (illustrative) globe animation on rAF and gates the final "loaded"
+  // hand-off on the REAL bridge run settling. NOTHING is synthesised here: every number in the panels
+  // is fed by openBridge()'s websocket. flow: dialing → traffic → (await real run) → loaded.
   useEffect(()=>{
     if(stage!=="dialing" && stage!=="traffic") return;
     const dur = stage==="dialing"?DIAL_SECS:TRAFFIC_SECS;
     const ref = stage==="dialing"?dialRef:trafRef;
-    const gw = GATEWAYS[gwIndex];
     let raf, last=performance.now(), lastTick=0;
     const step=(now)=>{
       ref.current=Math.min(1, ref.current + (now-last)/1000/dur); last=now;
-      if(stage==="traffic" && now-lastTick>66){ lastTick=now; const tp=ref.current;
-        const rtt=38+5*Math.sin(tp*7), bps=Math.min(1,tp*1.15)*3.0e6, cwnd=(48+tp*44)*1024;
-        const H=histRef.current; H.rtt.push(rtt); H.bps.push(bps); H.cwnd.push(cwnd);
-        if(H.rtt.length>46){H.rtt.shift();H.bps.shift();H.cwnd.shift();}
-        setMetrics({ egress:gw.ip, rtt, bps, cwnd, lost:Math.floor(tp*4), sent:Math.floor(tp*1500), code: tp>=1?200:null });
-      } else if(now-lastTick>66){ lastTick=now; setTick(t=>t+1); }
+      if(now-lastTick>66){ lastTick=now; setTick(t=>t+1); }   // re-render so live metrics + legend track the socket
       if(ref.current>=1){
-        if(stage==="dialing") setStage("traffic");
-        else { setMetrics({ egress:gw.ip, rtt:41.2, bps:3.0e6, cwnd:92*1024, lost:3, sent:1500, code:200 });
-          setStage("loaded"); }
-        return;
+        if(stage==="dialing"){ setStage("traffic"); return; }
+        if(settledRef.current){ setStage("loaded"); return; }   // traffic anim done — wait for the real run
       }
       raf=requestAnimationFrame(step);
     };
@@ -775,16 +817,20 @@ function App(){
   // dim the globe per stage; on loaded keep it fairly visible behind the translucent result page
   const dim = stage==="intro"?0.5 : stage==="dialing"?0 : stage==="traffic"?0.42 : 0.16;
   // quicmix sits on BOTH ends; the mix substrates are PARALLEL options, one of them active this circuit
+  const liveOk = bridge.status==="streaming" || bridge.status==="done";
+  const liveDown = bridge.status==="offline" || bridge.status==="error";
   const legend = {
     active: activeMix,
     subs: MIXNETS.map(m=>({id:m.id, label:m.label, color:COLORS[m.id]})),
-    gateway: { ip:gw.ip, city:gw.city },
+    gateway: { ip: metrics?.egress || gw.ip, city:gw.city },
+    verified: liveOk && !!metrics?.egress,
+    offline: liveDown,
     domain,
   };
   const legendVisible = stage==="traffic" || stage==="loaded";
   const flowing = stage==="traffic";
-  const connTitle = stage==="loaded" ? "circuit complete · page delivered"
-    : stage==="traffic" ? "request in flight · constant cell rate"
+  const connTitle = stage==="loaded" ? (liveOk?"circuit complete · live metrics":liveDown?"circuit complete · bridge offline":"circuit complete")
+    : stage==="traffic" ? "request in flight · live quic stats"
     : "secure tunnel established";
 
   return html`<${React.Fragment}>
@@ -827,22 +873,26 @@ function App(){
       </div>`:null}
 
       ${(stage==="dialing"||stage==="traffic")?html`<div class="frame metrics dock">
-        <h4>connection</h4>
-        <div class="m"><span>egress ip</span><b>${metrics?.egress||"…"}</b></div>
-        <div class="m"><span>rtt</span><b>${metrics?.rtt?metrics.rtt.toFixed(1)+" ms":"–"}</b></div>
-        <div class="m"><span>throughput</span><b>${fmtBps(metrics?.bps)}</b></div>
-        <div class="m"><span>cwnd</span><b>${metrics?.cwnd?(metrics.cwnd/1024).toFixed(0)+" kb":"–"}</b></div>
-        <div class="m amber"><span>lost / sent</span><b>${metrics?(`${metrics.lost??0} / ${metrics.sent??0}`):"–"}</b></div>
-        <div class="m"><span>next hop</span><b>${gw.ip}</b></div>
+        <h4>connection <span style=${{fontSize:"10px",marginLeft:"6px",letterSpacing:"0.04em",color:liveOk?"#52ff8f":liveDown?"#ff7a7a":"#ffb53d"}}>${liveOk?"● live":liveDown?"● bridge offline":"● connecting…"}</span></h4>
+        <div class="m"><span>egress ip</span><b>${metrics?.egress||(liveDown?"—":"…")}</b></div>
+        <div class="m"><span>rtt</span><b>${metrics?.rtt!=null?metrics.rtt.toFixed(1)+" ms":(liveDown?"—":"…")}</b></div>
+        <div class="m"><span>throughput</span><b>${metrics?.bps?fmtBps(metrics.bps):(liveDown?"—":"…")}</b></div>
+        <div class="m"><span>cwnd</span><b>${metrics?.cwnd?fmtBytes(metrics.cwnd):(liveDown?"—":"…")}</b></div>
+        <div class="m amber"><span>lost / sent</span><b>${metrics&&metrics.sent!=null?`${metrics.lost??0} / ${metrics.sent}`:(liveDown?"—":"…")}</b></div>
+        <div class="m"><span>prev hop</span><b>ingress (you)</b></div>
+        <div class="m"><span>next hop</span><b>${metrics?.egress||gw.ip}</b></div>
       </div>`:null}
 
-      ${stage==="loaded"?html`<${StatusRail} metrics=${metrics} hist=${histRef.current} gateway=${{ip:gw.ip,city:gw.city}}/>`:null}
+      ${stage==="loaded"?html`<${StatusRail} metrics=${metrics} hist=${histRef.current} gateway=${{ip:metrics?.egress||gw.ip,city:gw.city}}/>`:null}
 
       <${ConnectionLegend} legend=${legend} visible=${legendVisible} flowing=${flowing}
         title=${connTitle} cls=${stage==="loaded"?"loaded":""}/>
 
       ${stage==="loaded"?html`<div class="result">
-        <div class="result-bar"><span>delivered through <b>${GATEWAYS[gwIndex].provider}</b></span>
+        <div class="result-bar">
+          <span>${liveOk
+            ? html`measured over quicmix · <b>${GATEWAYS[gwIndex].provider}</b> · egress ${metrics?.egress||gw.ip}${metrics?.code?html` · http ${metrics.code}`:""}`
+            : html`<b style=${{color:"#ff7a7a"}}>live bridge offline</b> · metrics unavailable · page preview only`}</span>
           <a class="rb-url" href=${target} target="_blank" rel="noopener noreferrer">${target} ↗</a></div>
         <iframe class="resultframe" src=${BOUNCE?(BOUNCE+"?url="+encodeURIComponent(target)+"&gateway="+GATEWAYS[gwIndex].id):target} title="requested page"
           sandbox="allow-scripts allow-same-origin allow-popups allow-forms" referrerpolicy="no-referrer"></iframe>
