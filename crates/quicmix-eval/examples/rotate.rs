@@ -5,7 +5,8 @@
 //! Usage: `cargo run --manifest-path quicmix/Cargo.toml --bin rotate`
 
 use anyhow::Result;
-use quicmix::rotation::{connect_fresh, session_send, CircuitPool};
+use quicmix::rotation::session_send;
+use quicmix_eval::emulator::{connect_fresh, prewarm};
 use quicmix::OracleParams;
 use quinn::{Endpoint, ServerConfig};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -90,7 +91,7 @@ async fn main() -> Result<()> {
         cold.push(t.elapsed());
     }
     // WARM: pre-warm a pool off the hot path, then time take + send.
-    let mut pool = CircuitPool::prewarm(k, server_addr, cert.clone(), p).await?;
+    let mut pool = prewarm(k, server_addr, cert.clone(), p).await?;
     println!("pre-warmed pool: {} circuits ready", pool.len());
     let mut warm = Vec::new();
     while let Some(c) = pool.take() {
@@ -113,7 +114,7 @@ async fn main() -> Result<()> {
     let sid = rand_id();
     let cold_c = connect_fresh(server_addr, cert.clone(), p).await?;
     session_send(&cold_c.conn, sid, b"a").await?;
-    let mut pool2 = CircuitPool::prewarm(1, server_addr, cert.clone(), p).await?;
+    let mut pool2 = prewarm(1, server_addr, cert.clone(), p).await?;
     let warm_c = pool2.take().unwrap();
     session_send(&warm_c.conn, sid, b"b").await?;
 

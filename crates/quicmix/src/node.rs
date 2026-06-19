@@ -135,6 +135,13 @@ impl Node {
     }
 }
 
+/// Sentinel target for the self-sourced bandwidth probe (the live-metrics demo).
+/// `"@measure <bytes>\n"` asks the gateway to stream `<bytes>` of throwaway data
+/// back over this QUIC stream instead of splicing to a TCP target — so the demo
+/// measures the **quicmix link itself**, not a third-party mirror's bandwidth.
+const MEASURE_PREFIX: &str = "@measure ";
+const MEASURE_MAX: u64 = 64 * 1024 * 1024;
+
 /// Gateway side of one proxied connection: read the target, dial it, splice.
 async fn gateway_stream(mut send: SendStream, recv: RecvStream) -> Result<()> {
     let mut br = BufReader::new(recv);
@@ -142,6 +149,20 @@ async fn gateway_stream(mut send: SendStream, recv: RecvStream) -> Result<()> {
     br.read_line(&mut target).await?;
     let target = target.trim().to_string();
     if target.is_empty() {
+        return Ok(());
+    }
+    if let Some(rest) = target.strip_prefix(MEASURE_PREFIX) {
+        let n = rest.trim().parse::<u64>().unwrap_or(0).min(MEASURE_MAX);
+        let chunk = vec![0u8; 64 * 1024];
+        let mut left = n;
+        while left > 0 {
+            let k = left.min(chunk.len() as u64) as usize;
+            if send.write_all(&chunk[..k]).await.is_err() {
+                break;
+            }
+            left -= k as u64;
+        }
+        let _ = send.finish();
         return Ok(());
     }
     let tcp = TcpStream::connect(&target).await?;

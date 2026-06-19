@@ -2,7 +2,7 @@
 //! all three quicmix mechanisms at once:
 //!
 //! - **oracle-fed congestion control** — every pooled circuit is built with the
-//!   oracle's transport. With a [`crate::client::MeasuredCc`] (`start_measured`),
+//!   oracle's transport. With a [`quicmix::client::MeasuredCc`] (`start_measured`),
 //!   each new circuit's `TransportConfig` is **rebuilt from the latest measured
 //!   oracle** (delay/loss/jitter sampled from live connections).
 //! - **the oracle** — measured online and fed back into newly-built circuits.
@@ -15,8 +15,8 @@
 //! drain timeout elapses, so a forced rotation never kills a healthy in-flight
 //! request. Refill happens off the hot path with explicit failure metrics.
 
-use crate::client::MeasuredCc;
-use crate::rotation::{connect_fresh_with, Circuit, FrontFactory};
+use quicmix::client::MeasuredCc;
+use quicmix::rotation::{connect_fresh_with, Circuit, FrontFactory};
 use anyhow::Result;
 use quinn::{Connection, TransportConfig};
 use rustls::pki_types::CertificateDer;
@@ -305,7 +305,7 @@ impl WarmPool {
     /// A structured [`crate::metrics::Snapshot`] scraped from the live pool: QUIC
     /// path stats summed across live circuits, the measured-oracle RTT percentiles
     /// (zeros if not measuring), and the circuit counters/ready gauge. The substrate
-    /// fields stay zero here — a relay holding a [`crate::substrate::Substrate`]
+    /// fields stay zero here — a relay holding a [`quicmix::substrate::Substrate`]
     /// merges those via [`crate::metrics::Snapshot::with_substrate`].
     pub async fn metrics(&self) -> crate::metrics::Snapshot {
         let mut quic = crate::metrics::QuicStats::default();
@@ -350,7 +350,7 @@ impl WarmPool {
     /// Run the http→quic ingress proxy over this pool, via the shared hyper ingress,
     /// round-robining a (leased) warm circuit per request; 503 if none is ready.
     pub async fn serve(self: Arc<Self>, listen: &str) -> Result<SocketAddr> {
-        crate::ingress::serve_with(listen, move || {
+        quicmix::ingress::serve_with(listen, move || {
             let pool = self.clone();
             async move { pool.pick().await }
         })
@@ -361,8 +361,8 @@ impl WarmPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rotation::emulated_front;
-    use crate::OracleParams;
+    use crate::emulator::emulated_front;
+    use quicmix::OracleParams;
     use quinn::{Endpoint, ServerConfig};
     use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 

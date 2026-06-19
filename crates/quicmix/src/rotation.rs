@@ -9,9 +9,6 @@
 //! hides the setup handshake so a rotation is ~instant instead of paying a mix
 //! round-trip.
 
-use crate::emulator::EmulatedMixnet;
-use crate::relay::start_relay;
-use crate::OracleParams;
 use anyhow::Result;
 use quinn::{ClientConfig, Connection, Endpoint, TransportConfig};
 use rustls::pki_types::CertificateDer;
@@ -29,34 +26,17 @@ pub struct Circuit {
 }
 
 /// Provisions a **fresh** local UDP front for one new circuit and returns the
-/// address a fresh quinn client should dial. The substrate lives behind it: the
-/// emulator ([`emulated_front`]) spins up a new in-process mix relay; a real
-/// substrate (e.g. `quicmix-nym`'s `nym_front`) bootstraps a fresh Nym client
-/// (new identity / SURB context) behind a UDP bridge. Each call MUST yield an
-/// independent circuit so consecutive ones share nothing observable on the wire.
+/// address a fresh quinn client should dial. The substrate lives behind it: a real
+/// substrate (e.g. `quicmix-nym`'s `nym_front`) bootstraps a fresh Nym client (new
+/// identity / SURB context) behind a UDP bridge; the eval `emulated_front` spins up
+/// a fresh in-process mix relay. Each call MUST yield an independent circuit so
+/// consecutive ones share nothing observable on the wire.
 ///
 /// This is the seam that decouples rotation from any one substrate: rotation logic
 /// (fresh endpoint → no resumption → fresh keys/CIDs/source addr) is identical; only
 /// the front factory differs.
 pub type FrontFactory =
     Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<SocketAddr>> + Send>> + Send + Sync>;
-
-/// Emulator front factory: each call builds a fresh in-process mix relay to
-/// `server_addr` (the original, hardcoded behaviour, now just one factory).
-pub fn emulated_front(server_addr: SocketAddr, p: OracleParams) -> FrontFactory {
-    Arc::new(move || {
-        Box::pin(async move {
-            start_relay(
-                server_addr,
-                Arc::new(EmulatedMixnet::new(p)),
-                Arc::new(EmulatedMixnet::new(p)),
-            )
-            .await
-            .map(|r| r.front)
-            .map_err(anyhow::Error::from)
-        })
-    })
-}
 
 /// Build one fresh, unlinkable circuit over whatever substrate `make_front`
 /// provisions: a new client endpoint (no shared session storage → no TLS
@@ -100,17 +80,6 @@ pub async fn connect_fresh_with(
     })
 }
 
-/// Build one fresh, unlinkable circuit over the **emulator** (a new mix relay path
-/// to `server_addr`). Thin wrapper over [`connect_fresh_with`] + [`emulated_front`]
-/// (quinn-default transport — the emulator's RTT is milliseconds).
-pub async fn connect_fresh(
-    server_addr: SocketAddr,
-    server_cert: CertificateDer<'static>,
-    p: OracleParams,
-) -> Result<Circuit> {
-    connect_fresh_with(&emulated_front(server_addr, p), server_cert, None).await
-}
-
 /// A pool of pre-warmed, unlinkable circuits ready for instant rotation.
 pub struct CircuitPool {
     warm: Vec<Circuit>,
@@ -132,17 +101,6 @@ impl CircuitPool {
             warm.push(connect_fresh_with(make_front, server_cert.clone(), transport.clone()).await?);
         }
         Ok(Self { warm })
-    }
-
-    /// Establish `n` circuits ahead of time over the **emulator**. Thin wrapper
-    /// over [`Self::prewarm_with`] + [`emulated_front`].
-    pub async fn prewarm(
-        n: usize,
-        server_addr: SocketAddr,
-        server_cert: CertificateDer<'static>,
-        p: OracleParams,
-    ) -> Result<Self> {
-        Self::prewarm_with(n, &emulated_front(server_addr, p), server_cert, None).await
     }
 
     /// Take a ready circuit (the rotation itself — no handshake on the hot path).

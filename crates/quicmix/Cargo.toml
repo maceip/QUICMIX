@@ -4,10 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util", "signal"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util", "signal", "process"] }
 rand = "0.8"
 async-trait = { workspace = true }
-futures = { workspace = true }
 quinn = { workspace = true }
 rustls = { workspace = true, features = ["tls12", "logging"] }
 rcgen = { workspace = true }
@@ -19,3 +18,16 @@ hyper = { version = "1", features = ["server", "client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 bytes = "1"
+
+# Optional: the live-metrics websocket (the demo's real data source). Off by
+# default so the lean node has no extra deps; the composition binary turns it on.
+# Includes a TLS client (tokio-rustls + webpki-roots) so the demo can fetch the
+# requested HTTPS page *over the quicmix link* and prove traffic rides the tunnel.
+tokio-tungstenite = { version = "0.24", optional = true }
+futures-util = { version = "0.3", optional = true }
+serde_json = { version = "1", optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"], optional = true }
+webpki-roots = { version = "0.26", optional = true }
+
+[features]
+metrics-ws = ["dep:tokio-tungstenite", "dep:futures-util", "dep:serde_json", "dep:tokio-rustls", "dep:webpki-roots"]

@@ -38,3 +38,8 @@ path = "src/bin/nym_e2e.rs"
 [[bin]]
 name = "nym_rotate"
 path = "src/bin/nym_rotate.rs"
+
+# Substrate sidecar: bootstrap Nym and expose a local UDP front for the lean client.
+[[bin]]
+name = "nym_sidecar"
+path = "src/bin/nym_sidecar.rs"

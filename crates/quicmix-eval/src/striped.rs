@@ -17,7 +17,7 @@
 //! proportional to each oracle's BDP) is the obvious next step; the demo shows
 //! the naive behaviour so the effect is visible.
 
-use crate::{MixTransport, OracleParams};
+use quicmix::{MixTransport, OracleParams};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

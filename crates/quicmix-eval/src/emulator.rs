@@ -7,7 +7,7 @@
 //! *estimated* oracle on a real mixnet. Parameters are meant to be tuned to
 //! mimic measured Nym characteristics.
 
-use crate::{MixTransport, OracleParams};
+use quicmix::{MixTransport, OracleParams};
 use rand::Rng;
 use std::collections::VecDeque;
 use tokio::sync::{mpsc, Mutex};
@@ -124,6 +124,58 @@ impl MixTransport for EmulatedMixnet {
     async fn recv(&self) -> Option<Vec<u8>> {
         self.out_rx.lock().await.recv().await
     }
+}
+
+// --- Emulator-backed fronts for `quicmix::rotation` -------------------------
+//
+// These drive the production rotation seam ([`quicmix::rotation`]) over the
+// in-process emulator. They are the eval counterparts of a real substrate's
+// front factory (e.g. `quicmix-nym`'s `nym_front`).
+
+use anyhow::Result;
+use quicmix::rotation::{connect_fresh_with, Circuit, CircuitPool, FrontFactory};
+use rustls::pki_types::CertificateDer;
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+/// Emulator [`FrontFactory`]: each call stands up a fresh in-process mix relay to
+/// `server_addr` (two `EmulatedMixnet` legs), the eval analogue of a real
+/// substrate front.
+pub fn emulated_front(server_addr: SocketAddr, p: OracleParams) -> FrontFactory {
+    Arc::new(move || {
+        Box::pin(async move {
+            quicmix::relay::start_relay(
+                server_addr,
+                Arc::new(EmulatedMixnet::new(p)),
+                Arc::new(EmulatedMixnet::new(p)),
+            )
+            .await
+            .map(|r| r.front)
+            .map_err(anyhow::Error::from)
+        })
+    })
+}
+
+/// Build one fresh, unlinkable circuit over the emulator. Thin wrapper over
+/// [`connect_fresh_with`] + [`emulated_front`] (quinn-default transport — the
+/// emulator's RTT is milliseconds).
+pub async fn connect_fresh(
+    server_addr: SocketAddr,
+    server_cert: CertificateDer<'static>,
+    p: OracleParams,
+) -> Result<Circuit> {
+    connect_fresh_with(&emulated_front(server_addr, p), server_cert, None).await
+}
+
+/// Pre-warm `n` circuits over the emulator. Thin wrapper over
+/// [`CircuitPool::prewarm_with`] + [`emulated_front`].
+pub async fn prewarm(
+    n: usize,
+    server_addr: SocketAddr,
+    server_cert: CertificateDer<'static>,
+    p: OracleParams,
+) -> Result<CircuitPool> {
+    CircuitPool::prewarm_with(n, &emulated_front(server_addr, p), server_cert, None).await
 }
 
 #[cfg(test)]

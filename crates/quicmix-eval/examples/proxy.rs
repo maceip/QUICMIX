@@ -10,12 +10,12 @@
 
 use anyhow::Result;
 use quicmix::client::Congestion;
-use quicmix::emulator::EmulatedMixnet;
 use quicmix::node::Node;
-use quicmix::proxy::{PoolConfig, WarmPool};
+use quicmix_eval::emulator::EmulatedMixnet;
+use quicmix_eval::proxy::{PoolConfig, WarmPool};
 use quicmix::relay::start_relay;
 use quicmix::rotation::FrontFactory;
-use quicmix::striped::Striped;
+use quicmix_eval::striped::Striped;
 use quicmix::{MixTransport, OracleParams};
 use std::net::SocketAddr;
 use std::sync::Arc;

@@ -1,0 +1,21 @@
+[package]
+name = "quicmix-eval"
+version = "0.1.0"
+edition = "2021"
+
+# The simulation / evaluation harness for quicmix. None of this is on the shipping
+# client's runtime path: it exists to *exercise and measure* the production crate's
+# two contributions (oracle-fed CC, unlinkable rotation) over an in-process mixnet
+# emulator. Kept out of `quicmix` so the client crate compiles and ships only real,
+# reachable code.
+[dependencies]
+quicmix = { path = "../quicmix" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util", "signal"] }
+rand = "0.8"
+async-trait = { workspace = true }
+futures = { workspace = true }
+quinn = { workspace = true }
+rustls = { workspace = true, features = ["tls12", "logging"] }
+rcgen = { workspace = true }
+anyhow = { workspace = true }
+bytes = "1"

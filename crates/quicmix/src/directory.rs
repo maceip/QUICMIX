@@ -76,6 +76,21 @@ pub fn qualifies_as_gateway(addr: SocketAddr) -> bool {
     !(ip.is_loopback() || ip.is_unspecified() || is_private(ip))
 }
 
+/// Discover the IP the host would use to reach the internet.
+///
+/// "Connects" a UDP socket to a public address: no packets are sent, but the OS
+/// selects the egress interface and `local_addr()` then reveals the source IP it
+/// would use. On a cloud host with a public IP bound to its NIC (e.g. a
+/// DigitalOcean droplet) this is the **public** IP; behind NAT it's the private
+/// RFC1918 address. Feeding the result to [`qualifies_as_gateway`] is the
+/// auto-promotion decision. Returns `None` if no route/interface is available.
+pub fn discover_egress_ip() -> Option<IpAddr> {
+    let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    // 1.1.1.1:53 is just a routing target; UDP connect sends nothing on the wire.
+    sock.connect("1.1.1.1:53").ok()?;
+    sock.local_addr().ok().map(|a| a.ip())
+}
+
 fn is_private(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),

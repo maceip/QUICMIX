@@ -2,7 +2,7 @@
 //! model so it can join the round-robin with the datagram mixnets.
 //!
 //! Tor is a *stream* substrate (a reliable byte stream via SOCKS5 / arti's
-//! `DataStream`), not a datagram pipe. To let it participate in [`crate::striped`]
+//! `DataStream`), not a datagram pipe. To let it participate in the eval `striped`
 //! round-robin alongside Nym/Katzenpost, we frame datagrams over the stream
 //! ([`StreamDatagram`], length-prefixed). This is the documented anti-pattern:
 //! every datagram shares one ordered stream, so the **whole Tor path

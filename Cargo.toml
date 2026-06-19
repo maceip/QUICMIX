@@ -2,10 +2,10 @@
 resolver = "2"
 members = [
     "crates/quicmix",
+    "crates/quicmix-node",
+    "crates/quicmix-eval",
     "substrates/quicmix-hopr",
     "substrates/quicmix-katzenpost",
-    "demo/quicmix-bounce",
-    "demo/quicmix-bridge",
 ]
 # quicmix-nym and quicmix-tor are deliberately NOT workspace members. nym-sdk
 # (via sqlx-sqlite) and arti-client (via rusqlite) each pull a *different*
@@ -17,9 +17,10 @@ exclude = [
     "substrates/quicmix-nym",
     "substrates/quicmix-tor",
 ]
-# Bare `cargo build` / `cargo test` only builds the light core crate. The heavier
-# member crates stay opt-in via `-p <crate>` so the everyday core workflow stays fast.
-default-members = ["crates/quicmix"]
+# Bare `cargo build` builds the core lib + the deployed `quicmix` composition binary
+# (which links the sqlite-free substrates by default). The eval harness and the heavier
+# probe bins stay opt-in via `-p <crate>` so the everyday core workflow stays fast.
+default-members = ["crates/quicmix", "crates/quicmix-node"]
 
 # Shared dependency versions live here so the security/transport-critical crates
 # (quinn, rustls, tokio, async-trait, …) can never drift between members. Members

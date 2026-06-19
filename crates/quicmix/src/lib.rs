@@ -9,18 +9,18 @@
 
 use std::time::Duration;
 
+pub mod autopilot;
 pub mod client;
 pub mod directory;
-pub mod emulator;
+pub mod front;
 pub mod ingress;
-pub mod metrics;
+#[cfg(feature = "metrics-ws")]
+pub mod metrics_ws;
 pub mod node;
 pub mod oracle;
-pub mod proxy;
 pub mod relay;
 pub mod rotation;
 pub mod sched;
-pub mod striped;
 pub mod substrate;
 pub mod tor;
 
@@ -44,7 +44,8 @@ pub enum SubstrateKind {
 
 /// Parameters the mix layer exposes to the scheduler (Area A).
 ///
-/// On the [`emulator::EmulatedMixnet`] these are **exact** (we set them). On a
+/// On the in-process `EmulatedMixnet` (see the `quicmix-eval` harness) these are
+/// **exact** (we set them). On a
 /// real Nym deployment the policy params are known (published on mainnet, or set
 /// by us on a self-hosted AWS topology) while *realized* delay/loss are
 /// **measured empirically**; a deployed scheduler additionally estimates them
@@ -94,12 +95,12 @@ impl OracleParams {
 
 /// A datagram pipe with a known/estimated timing model.
 ///
-/// Implemented by [`emulator::EmulatedMixnet`], the (spec'd) Nym/Katzenpost
-/// bindings, the Tor stream-adapter, and [`striped::Striped`]. Object-safe (via
-/// `async_trait`) so heterogeneous substrates can be combined as
-/// `Arc<dyn MixTransport>` and round-robined.
+/// Implemented by the `quicmix-eval` `EmulatedMixnet`, the (spec'd) Nym/Katzenpost
+/// bindings, the [`tor::StreamDatagram`] stream-adapter, and the eval `Striped`
+/// multipath transport. Object-safe (via `async_trait`) so heterogeneous substrates
+/// can be combined as `Arc<dyn MixTransport>` and round-robined.
 /// Typed substrate-boundary errors. Real substrate failures map into these instead
-/// of being silently dropped (`let _ = ...`); [`substrate::Substrate`] increments
+/// of being silently dropped (`let _ = ...`); the eval `Substrate` wrapper increments
 /// metrics and surfaces them to the caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SubstrateError {

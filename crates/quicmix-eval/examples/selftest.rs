@@ -14,8 +14,8 @@
 
 use anyhow::Result;
 use quicmix::client::bdp_packets;
-use quicmix::emulator::EmulatedMixnet;
 use quicmix::node::Node;
+use quicmix_eval::emulator::EmulatedMixnet;
 use quicmix::relay::start_relay;
 use quicmix::OracleParams;
 use std::time::{Duration, Instant};

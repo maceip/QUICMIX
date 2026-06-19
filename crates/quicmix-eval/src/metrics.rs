@@ -4,21 +4,21 @@
 //! Prometheus exposition text — the wire contract a scrape/dashboard codes against.
 //! It folds together the three boundaries quicmix already measures:
 //!
-//! - **substrate boundary** ([`crate::substrate::Metrics`]) — sent/recv/send_errors/
+//! - **substrate boundary** ([`quicmix::substrate::Metrics`]) — sent/recv/send_errors/
 //!   dropped counters plus queue-depth and enqueue-latency gauges.
 //! - **QUIC path** (live [`quinn::Connection`] stats) — sent/lost packets, lost
 //!   bytes, congestion events. quinn exposes **no** standalone retransmit counter;
 //!   in QUIC a *lost* packet's frames are exactly what get retransmitted, so
 //!   `lost_packets`/`lost_bytes` **are** the retransmission signals (named honestly
 //!   rather than fabricating a separate number).
-//! - **oracle** ([`crate::oracle::OracleEstimator`]) — measured RTT p50/p90/p99.
+//! - **oracle** ([`quicmix::oracle::OracleEstimator`]) — measured RTT p50/p90/p99.
 //! - **circuits** ([`crate::proxy::WarmPool`]) — built/retired/build_errors counters
 //!   and the ready gauge.
 //!
 //! Everything is composable: a process fills the parts it owns (the proxy owns
 //! quic+oracle+circuits; a relay owns the substrate boundary) and renders the union.
 
-use crate::substrate::MetricsSnapshot as SubstrateMetrics;
+use quicmix::substrate::MetricsSnapshot as SubstrateMetrics;
 use std::fmt::Write as _;
 use std::time::Duration;
 

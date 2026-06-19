@@ -1,0 +1,35 @@
+[package]
+name = "quicmix-node"
+version = "0.1.0"
+edition = "2021"
+
+# The deployed `quicmix` node — the **composition binary**.
+#
+# The core `quicmix` crate is substrate-agnostic (and the substrate crates depend on
+# it for `MixTransport`, so it can't depend back on them — Cargo forbids cycles). This
+# crate sits on top: it links the sqlite-free substrate crates (Katzenpost, HOPR)
+# behind features and injects a `quicmix::front::SubstrateBuilder`, making them
+# selectable **in-process**. The sqlite-conflicting substrates (Nym, Tor) cannot be
+# linked alongside each other (conflicting `libsqlite3-sys`), so they are reached via
+# sidecar processes instead — see `quicmix::front`.
+
+[[bin]]
+name = "quicmix"
+path = "src/main.rs"
+
+[features]
+# Capable-by-default: link both sqlite-free substrates so they're selectable without a
+# second process, and ship the live-metrics websocket (the public demo's real data
+# source). Disable with --no-default-features for a lean direct-only build.
+default = ["katzenpost", "hopr", "metrics-ws"]
+katzenpost = ["dep:quicmix-katzenpost"]
+hopr = ["dep:quicmix-hopr"]
+metrics-ws = ["quicmix/metrics-ws"]
+
+[dependencies]
+quicmix = { path = "../quicmix" }
+quicmix-katzenpost = { path = "../../substrates/quicmix-katzenpost", optional = true }
+quicmix-hopr = { path = "../../substrates/quicmix-hopr", optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+async-trait = { workspace = true }
+anyhow = { workspace = true }

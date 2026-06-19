@@ -2549,7 +2549,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bytes",
- "futures",
  "http-body-util",
  "hyper",
  "hyper-util",

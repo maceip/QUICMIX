@@ -11,9 +11,9 @@
 
 use anyhow::Result;
 use quicmix::client::Congestion;
-use quicmix::emulator::EmulatedMixnet;
+use quicmix_eval::emulator::EmulatedMixnet;
 use quicmix::relay::start_relay;
-use quicmix::striped::Striped;
+use quicmix_eval::striped::Striped;
 use quicmix::{MixTransport, OracleParams};
 use quinn::{ClientConfig, Endpoint, ServerConfig};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};

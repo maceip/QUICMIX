@@ -21,3 +21,8 @@ async-trait = "0.1"
 anyhow = "1"
 # `io-util` is needed by the `tor_probe` bin (AsyncRead/Write on the Tor stream).
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util"] }
+
+# Substrate sidecar: bootstrap Tor and expose a local UDP front for the lean client.
+[[bin]]
+name = "tor_sidecar"
+path = "src/bin/tor_sidecar.rs"

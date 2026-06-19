@@ -14,7 +14,9 @@
 
 use anyhow::Result;
 use quicmix::client::{bdp_packets, Congestion};
-use quicmix::{emulator::EmulatedMixnet, relay::start_relay, OracleParams};
+use quicmix::OracleParams;
+use quicmix::relay::start_relay;
+use quicmix_eval::emulator::EmulatedMixnet;
 use quinn::{ClientConfig, Endpoint, ServerConfig};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::sync::Arc;

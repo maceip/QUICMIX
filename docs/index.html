@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>quicmix // live demo</title>
-<meta name="description" content="a live 3d demo of quicmix carrying an http request across a metadata-private mixnet over quic — pick a real gateway and watch the nodes light up on the globe" />
+<meta name="description" content="a live 3d demo of quicmix carrying a real http request over a quic tunnel to a real gateway — the page bytes and metrics are fetched over the link, not simulated" />
 <style>
   :root{
     --p:#52ff8f; --p-dim:#1f6b3f; --amber:#ffb53d; --cyan:#38e1ff; --rail:#3b82f6; --bg:#02060a;
@@ -147,6 +147,8 @@
   @keyframes cljp{50%{opacity:.35}}
   .connlegend .cl-svg{display:block;width:100%;height:auto;max-height:132px}
   /* the real next/prev hop line */
+  .connlegend .cl-substrate{font-size:9px;letter-spacing:.04em;color:#7fc6a3;margin:1px 0 2px;text-align:center}
+  .connlegend .cl-substrate b{color:#bdf3d6;font-weight:600}
   .connlegend .cl-hops{font-size:9.5px;letter-spacing:.04em;color:#9fe9c7;margin:1px 0 3px;text-align:center}
   .connlegend .cl-hops b{color:var(--cyan);font-weight:600}
   .connlegend .cl-hops .cl-sep{color:var(--p-dim);margin:0 6px}
@@ -326,17 +328,17 @@ import htm from "htm";
 const html = htm.bind(React.createElement);
 
 const R = 2, LIFT = 0.42;
-// the bounce iframe loader on the gateway droplet (quicmix-bounce, behind caddy). it re-serves the
-// requested page without X-Frame-Options / frame-ancestors so the result iframe can embed any site.
-// leave "" to embed the url directly (works for sites that allow framing, e.g. example.com); once
-// quicmix-bounce is deployed, set this to its url (e.g. "https://64.226.93.43.nip.io/bounce").
+// the result iframe embeds the requested url directly. sites that allow framing (e.g. example.com)
+// render; sites that send X-Frame-Options / frame-ancestors will refuse — that's expected, the metrics
+// above are the real story and the iframe is just a page preview. (no separate page-rewriter exists.)
 const BOUNCE = "";
 
-// the live-demo bridge (quicmix-bridge behind caddy auto-tls). it opens a REAL quicmix quic link to
-// the chosen gateway, runs the fetch through it, and streams the real quinn connection stats (rtt,
-// cwnd, lost/sent, throughput) + the verified egress ip over this websocket. all metrics shown in the
-// ui come from here — nothing is synthesised. only the globe animation is illustrative.
-const BRIDGE_WS = "wss://64.226.93.43.nip.io";
+// the live-metrics websocket. this is NOT a separate "bridge" binary — it is the quicmix node itself,
+// built with its `metrics-ws` feature and fronted by caddy auto-tls. on request it opens a REAL
+// quicmix quic link to the chosen gateway, verifies the egress ip through it, and streams the real
+// quinn path stats (rtt, cwnd, lost/sent) + measured goodput over this websocket. every number shown
+// in the ui comes from this live run — nothing is synthesised. only the globe animation is illustrative.
+const METRICS_WS = "wss://64.226.93.43.nip.io";
 
 const COLORS = { public:"#3ad17a", nym:"#ff9e3d", tor:"#9d7bff", katzenpost:"#2ee6c0", hopr:"#ffd23f",
                  gateway:"#38e1ff", origin:"#ffffff", rail:"#3b82f6" };
@@ -494,17 +496,14 @@ function RouteNodes({path}){
   </group>`;
 }
 
-// the multi-hop path the dial builds. quicmix sits on BOTH sides — a client at the ingress (you) and
-// a peer at the gateway — with the mix substrates in the middle, then a final hop out to the domain.
-// quicmix rides ONE substrate (not a serial chain): you (quicmix client) → a single mix node →
-// the quicmix gateway (the real next hop: ip · city) → the destination domain.
-function buildPath(gwIndex,domain,activeMix){
+// the path the dial builds — it mirrors the REAL live circuit: quicmix sits on BOTH ends (a client
+// at the ingress (you) and a peer at the gateway). The deployed demo path is a DIRECT quicmix QUIC
+// link (1 hop) to the gateway, which then egresses to the domain. The mix substrates drawn on the
+// globe are illustrative topology, not nodes this circuit traverses.
+function buildPath(gwIndex,domain){
   const g=GATEWAYS[gwIndex];
-  const m=MIXNETS[(activeMix||0)%MIXNETS.length];
-  const mix=clusterDots(m.center,m.n)[1];
   const node=(lat,lon,label,color)=>{const v=ll(lat,lon);return{v,dir:v.clone().normalize(),label,color};};
   return [ node(INGRESS.lat,INGRESS.lon,"you · quicmix client",COLORS.gateway),
-           node(mix[0],mix[1],m.label,COLORS[m.id]),
            node(g.lat,g.lon,`quicmix gateway · ${g.ip} · ${g.city}`,COLORS.gateway),
            node(ORIGIN.lat,ORIGIN.lon,domain||"destination",COLORS.origin) ];
 }
@@ -590,7 +589,7 @@ function Rig({path,stage,dialRef,trafRef,packetState,labelState,railState}){
 }
 
 function Scene({gwIndex,onPick,stage,dialRef,trafRef,dim,domain,activeMix}){
-  const path=useMemo(()=>buildPath(gwIndex,domain,activeMix),[gwIndex,domain,activeMix]);
+  const path=useMemo(()=>buildPath(gwIndex,domain),[gwIndex,domain]);
   const packetState=useRef({pos:null,visible:false});
   const labelState=useRef(-1); const railState=useRef({reveal:0,connected:false});
   const [rail,setRail]=useState({reveal:0,connected:false});
@@ -651,10 +650,12 @@ function Responsive({stage}){
 const clPath=(a,b)=>{const mx=(a[0]+b[0])/2;return `M${a[0]},${a[1]} L${mx},${a[1]} L${mx},${b[1]} L${b[0]},${b[1]}`;};
 function ConnectionLegend({legend,visible,flowing,title,cls=""}){
   const you=[46,63], ingress=[138,63], gw=[486,63], dom=[582,63], subX=312, subY=[16,46,76,106];
-  const act=legend.active, fl=flowing?" flow":"";
+  const act=-1, fl=flowing?" flow":"";   // the live demo path is DIRECT quicmix QUIC; no mix is in-path
   const edges=[{d:clPath(you,ingress),on:true}];
+  // mix substrates shown as dim, available-but-unused parallel options (never chained in series)
   legend.subs.forEach((s,i)=>{const sn=[subX,subY[i]];
-    edges.push({d:clPath(ingress,sn),on:i===act}); edges.push({d:clPath(sn,gw),on:i===act});});
+    edges.push({d:clPath(ingress,sn),on:false}); edges.push({d:clPath(sn,gw),on:false});});
+  edges.push({d:clPath(ingress,gw),on:true});  // the REAL active rail: direct ingress → gateway
   edges.push({d:clPath(gw,dom),on:true});
   const nodes=[
     {p:you,color:"#dffff0",main:"you",sub:"client"},
@@ -669,7 +670,8 @@ function ConnectionLegend({legend,visible,flowing,title,cls=""}){
       <span class="cl-title">${title}</span>
       <span class=${"cl-jp"+(flowing?" act":"")}>${flowing?"通信中":"待機"}</span>
     </div>
-    <div class="cl-hops">client next hop <b>→ ${legend.gateway.ip}</b> · ${legend.gateway.city}${legend.verified?html`<span style=${{color:"#52ff8f",marginLeft:"5px"}}>✓ live egress</span>`:legend.offline?html`<span style=${{color:"#ff7a7a",marginLeft:"5px"}}>bridge offline</span>`:""}
+    <div class="cl-substrate">substrate <b>${legend.substrate}</b> · mixnet substrates shown are available, not in this path</div>
+    <div class="cl-hops">client next hop <b>→ ${legend.gateway.ip}</b> · ${legend.gateway.city}${legend.verified?html`<span style=${{color:"#52ff8f",marginLeft:"5px"}}>✓ live egress</span>`:legend.offline?html`<span style=${{color:"#ff7a7a",marginLeft:"5px"}}>metrics offline</span>`:""}
       <span class="cl-sep">·</span> gateway prev hop <b>← ingress (you)</b></div>
     <svg class="cl-svg" viewBox="0 0 620 126" preserveAspectRatio="xMidYMid meet">
       ${edges.map((e,i)=>html`<${React.Fragment} key=${"e"+i}>
@@ -730,8 +732,9 @@ const fmtBytes=b=>(b&&b>0)?(b>=1048576?(b/1048576).toFixed(1)+" MB":b>=1024?(b/1
 function App(){
   // staged flow: intro (enter url) → dialing (path dials up) → traffic (data flows) → loaded (page in iframe)
   const dialRef=useRef(0), trafRef=useRef(0);
-  // default to nyc3: the bridge runs on the fra1 droplet, so routing through fra1 is a same-host
-  // loopback (sub-ms, no real path); nyc3 is a genuine cross-datacenter hop with representative live stats.
+  // default to nyc3: the metrics-ws node runs on the fra1 droplet, so routing through fra1 is a
+  // same-host loopback (sub-ms, no real path); nyc3 is a genuine cross-datacenter hop with
+  // representative live stats.
   const [gwIndex,setGwIndex]=useState(1);
   const [url,setUrl]=useState("https://www.example.com");
   const [stage,setStage]=useState("intro");
@@ -740,7 +743,7 @@ function App(){
   // the ONE substrate this circuit rides (re-rolled per fetch); the others show as parallel options
   const [activeMix,setActiveMix]=useState(0);
   const histRef=useRef({rtt:[],bps:[],cwnd:[]});   // recent series for the status-rail sparklines
-  // live bridge: status of the REAL quic run streamed from quicmix-bridge over wss
+  // live metrics: status of the REAL quic run streamed from the node's metrics-ws over wss
   const [bridge,setBridge]=useState({status:"idle", err:null});   // idle|connecting|streaming|done|offline|error
   const wsRef=useRef(null), settledRef=useRef(false), cwndRef=useRef(null);
 
@@ -753,12 +756,13 @@ function App(){
 
   function closeWs(){ try{ wsRef.current&&wsRef.current.close(); }catch{} wsRef.current=null; }
 
-  // open a REAL run on the bridge: stream the verified egress + live quinn stats into `metrics`.
-  // the globe animation is independent + illustrative; every number shown here comes off this socket.
+  // open a REAL run on the node's metrics-ws: stream the verified egress + live quinn stats into
+  // `metrics`. the globe animation is independent + illustrative; every number shown here comes off
+  // this socket.
   function openBridge(target, gateway){
     closeWs(); settledRef.current=false; cwndRef.current=null;
     const settle=(status,extra)=>{ if(settledRef.current && status!=="error") return; settledRef.current=true; setBridge(b=>({...b,status,...(extra||{})})); };
-    let ws; try{ ws=new WebSocket(BRIDGE_WS); }catch(e){ setBridge({status:"offline",err:String(e&&e.message||e)}); return; }
+    let ws; try{ ws=new WebSocket(METRICS_WS); }catch(e){ setBridge({status:"offline",err:String(e&&e.message||e)}); return; }
     wsRef.current=ws;
     setBridge({status:"connecting", err:null});
     const offlineTimer=setTimeout(()=>{ if(!settledRef.current){ setBridge(b=>({...b,status:"offline",err:"no response"})); settledRef.current=true; } }, 20000);
@@ -767,6 +771,7 @@ function App(){
       let m; try{ m=JSON.parse(ev.data); }catch{ return; }
       if(m.type==="connected"){ setBridge(b=>({...b,status:"streaming",handshake:m.handshake_ms})); }
       else if(m.type==="egress"){ setMetrics(p=>({...(p||{}), egress:m.ip})); setBridge(b=>({...b,status:"streaming"})); }
+      else if(m.type==="page"){ setMetrics(p=>({...(p||{}), code:m.code, pageBytes:m.bytes, pageHtml:m.html||null, finalUrl:m.url})); setBridge(b=>({...b,status:"streaming"})); }
       else if(m.type==="sample"){
         cwndRef.current=m.cwnd;
         const H=histRef.current; H.rtt.push(m.rtt_ms); H.bps.push(m.throughput_bps); H.cwnd.push(m.cwnd);
@@ -784,16 +789,15 @@ function App(){
   }
 
   function startFetch(){
-    setActiveMix(Math.floor(Math.random()*MIXNETS.length));
     histRef.current={rtt:[],bps:[],cwnd:[]};
     dialRef.current=0; trafRef.current=0; setMetrics(null);
-    openBridge(urlOf(url), GATEWAYS[gwIndex].id);
+    openBridge(urlOf(url), GATEWAYS[gwIndex].ip);
     setStage("dialing");
   }
   function reset(){ closeWs(); dialRef.current=0; trafRef.current=0; setMetrics(null); setBridge({status:"idle",err:null}); setStage("intro"); }
 
   // stage driver — advances the (illustrative) globe animation on rAF and gates the final "loaded"
-  // hand-off on the REAL bridge run settling. NOTHING is synthesised here: every number in the panels
+  // hand-off on the REAL metrics run settling. NOTHING is synthesised here: every number in the panels
   // is fed by openBridge()'s websocket. flow: dialing → traffic → (await real run) → loaded.
   useEffect(()=>{
     if(stage!=="dialing" && stage!=="traffic") return;
@@ -820,7 +824,8 @@ function App(){
   const liveOk = bridge.status==="streaming" || bridge.status==="done";
   const liveDown = bridge.status==="offline" || bridge.status==="error";
   const legend = {
-    active: activeMix,
+    active: -1,
+    substrate: "direct quicmix QUIC · 1 hop",
     subs: MIXNETS.map(m=>({id:m.id, label:m.label, color:COLORS[m.id]})),
     gateway: { ip: metrics?.egress || gw.ip, city:gw.city },
     verified: liveOk && !!metrics?.egress,
@@ -829,7 +834,7 @@ function App(){
   };
   const legendVisible = stage==="traffic" || stage==="loaded";
   const flowing = stage==="traffic";
-  const connTitle = stage==="loaded" ? (liveOk?"circuit complete · live metrics":liveDown?"circuit complete · bridge offline":"circuit complete")
+  const connTitle = stage==="loaded" ? (liveOk?"circuit complete · live metrics":liveDown?"circuit complete · metrics offline":"circuit complete")
     : stage==="traffic" ? "request in flight · live quic stats"
     : "secure tunnel established";
 
@@ -843,7 +848,7 @@ function App(){
     <div class="hud">
       <div class="frame top">
         <span><b>quicmix</b> // live demo <span class="blink">_</span></span>
-        <span class="sub">http get over a metadata-private mixnet · quic on both ends</span>
+        <span class="sub">http get carried over a quicmix quic tunnel · quic on both ends</span>
         <span class="mode">${stage}</span>
       </div>
 
@@ -869,11 +874,11 @@ function App(){
           ${GATEWAYS.map((g,i)=>html`<div key=${g.id} class=${"gw"+(i===gwIndex?" on":"")} onClick=${()=>setGwIndex(i)}>
             <div>${g.provider}</div><div class="ip">${g.ip}</div></div>`)}
         </div>
-        <div class="note">enter a url and hit fetch · quicmix dials a multi-hop circuit across the mixnet, then loads the page through the chosen gateway</div>
+        <div class="note">enter a url and hit fetch · quicmix opens a direct QUIC tunnel to the chosen gateway, fetches the page over it, and reports live link metrics</div>
       </div>`:null}
 
       ${(stage==="dialing"||stage==="traffic")?html`<div class="frame metrics dock">
-        <h4>connection <span style=${{fontSize:"10px",marginLeft:"6px",letterSpacing:"0.04em",color:liveOk?"#52ff8f":liveDown?"#ff7a7a":"#ffb53d"}}>${liveOk?"● live":liveDown?"● bridge offline":"● connecting…"}</span></h4>
+        <h4>connection <span style=${{fontSize:"10px",marginLeft:"6px",letterSpacing:"0.04em",color:liveOk?"#52ff8f":liveDown?"#ff7a7a":"#ffb53d"}}>${liveOk?"● live":liveDown?"● metrics offline":"● connecting…"}</span></h4>
         <div class="m"><span>egress ip</span><b>${metrics?.egress||(liveDown?"—":"…")}</b></div>
         <div class="m"><span>rtt</span><b>${metrics?.rtt!=null?metrics.rtt.toFixed(1)+" ms":(liveDown?"—":"…")}</b></div>
         <div class="m"><span>throughput</span><b>${metrics?.bps?fmtBps(metrics.bps):(liveDown?"—":"…")}</b></div>
@@ -891,11 +896,14 @@ function App(){
       ${stage==="loaded"?html`<div class="result">
         <div class="result-bar">
           <span>${liveOk
-            ? html`measured over quicmix · <b>${GATEWAYS[gwIndex].provider}</b> · egress ${metrics?.egress||gw.ip}${metrics?.code?html` · http ${metrics.code}`:""}`
-            : html`<b style=${{color:"#ff7a7a"}}>live bridge offline</b> · metrics unavailable · page preview only`}</span>
+            ? html`${metrics?.pageHtml!=null?html`<b>document fetched over quicmix</b>`:html`measured over quicmix`} · <b>${GATEWAYS[gwIndex].provider}</b> · egress ${metrics?.egress||gw.ip}${metrics?.code?html` · http ${metrics.code}`:""}${metrics?.bps?html` · ${fmtBps(metrics.bps)}`:""}${metrics?.rtt!=null?html` · ${metrics.rtt.toFixed(0)} ms rtt`:""}`
+            : html`<b style=${{color:"#ff7a7a"}}>live metrics offline</b> · stats unavailable · page preview only`}</span>
           <a class="rb-url" href=${target} target="_blank" rel="noopener noreferrer">${target} ↗</a></div>
-        <iframe class="resultframe" src=${BOUNCE?(BOUNCE+"?url="+encodeURIComponent(target)+"&gateway="+GATEWAYS[gwIndex].id):target} title="requested page"
-          sandbox="allow-scripts allow-same-origin allow-popups allow-forms" referrerpolicy="no-referrer"></iframe>
+        ${metrics?.pageHtml!=null
+          ? html`<iframe class="resultframe" srcDoc=${'<base href="'+(metrics.finalUrl||target)+'">'+metrics.pageHtml} title="page fetched over quicmix"
+              sandbox="allow-scripts allow-same-origin allow-popups allow-forms" referrerpolicy="no-referrer"></iframe>`
+          : html`<iframe class="resultframe" src=${target} title="requested page (direct preview — over-quicmix fetch unavailable)"
+              sandbox="allow-scripts allow-same-origin allow-popups allow-forms" referrerpolicy="no-referrer"></iframe>`}
       </div>`:null}
 
       ${stage==="loaded"?html`<button class="startover" onClick=${reset}>↻ start over</button>`:null}

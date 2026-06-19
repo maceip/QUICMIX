@@ -11,10 +11,11 @@
 //! - prewarm partial failure → `build_errors` + bounded heal to target
 
 use quicmix::client::MeasuredCc;
-use quicmix::proxy::{PoolConfig, WarmPool};
-use quicmix::rotation::{emulated_front, FrontFactory};
-use quicmix::substrate::Substrate;
 use quicmix::{MixTransport, OracleParams, SubstrateError};
+use quicmix_eval::proxy::{PoolConfig, WarmPool};
+use quicmix::rotation::FrontFactory;
+use quicmix::substrate::Substrate;
+use quicmix_eval::emulator::emulated_front;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
