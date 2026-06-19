@@ -37,12 +37,12 @@ Running tests/failure_modes.rs
 test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
-The HOPR failure-mapping tests live in their **isolated** crate (the substrate
-bindings are standalone, not workspace members, so `--workspace` skips them — test
-each with `--manifest-path`):
+The HOPR failure-mapping tests live in the `quicmix-hopr` crate. It's a workspace
+member but not in `default-members`, so a bare `cargo test` skips it — run it with
+`-p` (or `--workspace`):
 
 ```sh
-cargo test --manifest-path quicmix-hopr/Cargo.toml
+cargo test -p quicmix-hopr
 ```
 
 ```
@@ -177,10 +177,10 @@ once; the core `quicmix` build never pulls them (isolated crates).
 ### T2.1 — Nym mainnet: measured oracle + QUIC/CC end-to-end + rotation
 
 ```sh
-# isolated crate → run by manifest path (or `cd quicmix-nym && cargo run --bin ...`)
-cargo run --manifest-path quicmix-nym/Cargo.toml --bin nym_e2e    # QUIC + quicmix CC over live Nym
-cargo run --manifest-path quicmix-nym/Cargo.toml --bin nym_bench  # CC A/B (cubic vs quicmix)
-cargo run --manifest-path quicmix-nym/Cargo.toml --bin nym_rotate # unlinkable rotation over Nym
+# workspace-excluded crate → run by manifest path (or `cd substrates/quicmix-nym && cargo run --bin ...`)
+cargo run --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_e2e    # QUIC + quicmix CC over live Nym
+cargo run --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_bench  # CC A/B (cubic vs quicmix)
+cargo run --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_rotate # unlinkable rotation over Nym
 ```
 
 - **Prereqs:** open egress to Nym mainnet gateways. No account/funds.
@@ -191,7 +191,7 @@ cargo run --manifest-path quicmix-nym/Cargo.toml --bin nym_rotate # unlinkable r
 - **Captured (`results.md` T1/T2/T4):**
 
 ```
-realprobe: 30/30 returned (0% loss)  RTT p50 2823 ms  p90 4598 ms  6.3 msg/s
+nym_probe: 30/30 returned (0% loss)  RTT p50 2823 ms  p90 4598 ms  6.3 msg/s
 → OracleParams { hops: 3, mean_hop_delay: 470ms, drop_prob: 0.0, slot_interval: 158ms, mtu: 1200 }
 
 nym_e2e: QUIC connection established over Nym in 2.5 s
@@ -220,15 +220,15 @@ quicmix/scripts/real-tor.sh 1.1.1.1:80
 - **Captured (`results.md` T1):**
 
 ```
-torprobe: bootstrap 160 s   stream connect 13.4 s   first-byte RTT 677 ms
+tor_probe: bootstrap 160 s   stream connect 13.4 s   first-byte RTT 677 ms
 → check.torproject.org returned HTTP/1.1 301  (confirms a real Tor exit)
 ```
 
 ### T2.3 — Katzenpost (docker voting testnet): CBOR data path
 
 ```sh
-cargo run --manifest-path quicmix-katzenpost/Cargo.toml --bin kp_probe  # connect + receive live PKI
-cargo run --manifest-path quicmix-katzenpost/Cargo.toml --bin kp_echo   # SendMessage → +echo → reply
+cargo run -p quicmix-katzenpost --bin kp_probe  # connect + receive live PKI
+cargo run -p quicmix-katzenpost --bin kp_echo   # SendMessage → +echo → reply
 ```
 
 - **Prereqs:** a running `kpclientd` (no public mainnet — bring up Katzenpost's
@@ -252,7 +252,7 @@ network:  PKI consensus signed by 3 dirauths; Go ping 5/5 Sphinx packets, 100%
 #     europe-west3-docker.pkg.dev/hoprassociation/docker-images/hopr-pluto:3.0.0
 # (note: the :latest / 3.1.0 image is broken — its bootstrap fails downloading
 #  python 3.14 via uv; use 3.0.0)
-cargo run --release --manifest-path quicmix-hopr/Cargo.toml --bin hopr_probe -- \
+cargo run --release -p quicmix-hopr --bin hopr_probe -- \
   http://<node>:3001 'e2e-API-token^^' <dest_address> 127.0.0.1:9999 0 <node_ip> 0.0.0.0:1422
 ```
 

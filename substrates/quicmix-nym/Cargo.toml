@@ -5,10 +5,16 @@ edition = "2021"
 
 # Real Nym datagram substrate: implements quicmix::MixTransport over nym-sdk, and
 # wires it into a live end-to-end QUIC data path (client bridge + gateway loop).
-# Isolated crate (nym-sdk is heavy) so the core quicmix build never depends on it.
+#
+# WORKSPACE-EXCLUDED (see root Cargo.toml `[workspace] exclude`): nym-sdk pulls
+# sqlx-sqlite → libsqlite3-sys, which `links = "sqlite3"`. arti-client (quicmix-tor)
+# pulls rusqlite → a *different* libsqlite3-sys that also links "sqlite3". Cargo
+# forbids two packages linking the same native lib in one graph, so this crate
+# keeps its OWN Cargo.lock and cannot share the workspace lockfile. Deps are pinned
+# explicitly here (not via [workspace.dependencies]) for the same reason.
 
 [dependencies]
-quicmix = { path = ".." }
+quicmix = { path = "../../crates/quicmix" }
 nym-sdk = "1.21"
 async-trait = "0.1"
 futures = "0.3"

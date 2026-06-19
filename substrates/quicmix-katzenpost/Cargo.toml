@@ -8,11 +8,11 @@ edition = "2021"
 # thin-client wire format). Light deps: ciborium for CBOR, serde for the schema.
 
 [dependencies]
-quicmix = { path = ".." }
-async-trait = "0.1"
-anyhow = "1"
-tokio = { version = "1", features = ["net", "sync", "io-util", "macros", "rt-multi-thread"] }
-serde = { version = "1", features = ["derive"] }
+quicmix = { path = "../../crates/quicmix" }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true, features = ["net", "sync", "io-util", "macros", "rt-multi-thread"] }
+serde = { workspace = true }
 serde_bytes = "0.11"
 ciborium = "0.2"
 # blake2b-256 = Katzenpost's hash.Sum256, used to derive a service node's

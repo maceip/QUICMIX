@@ -8,14 +8,14 @@ edition = "2021"
 # so this talks the documented REST + session protocol directly. Isolated crate.
 
 [dependencies]
-quicmix = { path = ".." }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-serde = { version = "1", features = ["derive"] }
-async-trait = "0.1"
-anyhow = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "net"] }
+quicmix = { path = "../../crates/quicmix" }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+serde = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net"] }
 
 [dev-dependencies]
 # Raw-TCP mock hoprd for the HTTP-status → typed-error failure tests (#9): a real
 # server returning real 401/500/hang, exercising the real reqwest mapping path.
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "net", "io-util"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "io-util"] }

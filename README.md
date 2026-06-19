@@ -105,11 +105,11 @@ stochastic and the emulator's are emulator-specific — the real-network honest 
 
 | crate | substrate | status |
 |---|---|---|
-| `src/` | emulated datagram mixnet | cc + rotation, unit-tested |
-| `quicmix-nym/` | nym mainnet (datagram) | ✅ full end-to-end, cc + rotation verified live |
-| `quicmix-tor/` | tor via arti (stream) | ✅ real circuit, cc inert on a reliable stream |
-| `quicmix-katzenpost/` | katzenpost thin-client | ✅ real cbor, pki-resolved `sendmessage`→reply verified live |
-| `quicmix-hopr/` | hopr via `hoprd` v4 session api | ✅ real udp-tunnel session, round-trip verified live on a pluto 3.0.0 cluster (datagram → mixnet → echo → back, 244 ms) |
+| `crates/quicmix/` | emulated datagram mixnet | cc + rotation, unit-tested |
+| `substrates/quicmix-nym/` | nym mainnet (datagram) | ✅ full end-to-end, cc + rotation verified live |
+| `substrates/quicmix-tor/` | tor via arti (stream) | ✅ real circuit, cc inert on a reliable stream |
+| `substrates/quicmix-katzenpost/` | katzenpost thin-client | ✅ real cbor, pki-resolved `sendmessage`→reply verified live |
+| `substrates/quicmix-hopr/` | hopr via `hoprd` v4 session api | ✅ real udp-tunnel session, round-trip verified live on a pluto 3.0.0 cluster (datagram → mixnet → echo → back, 244 ms) |
 
 quic runs natively over datagram substrates. tor is a reliable stream, so it's framed into
 datagrams and head-of-line-blocks — a compatible slow leg, not a peer of the datagram nets,
@@ -200,11 +200,12 @@ cargo run --bin bench                                            # stock cubic v
 cargo run --bin rotate                                           # rotation cost + unlinkability
 cargo run --bin proxy                                            # pooled multipath proxy + prometheus metrics
 
-# real networks (open egress) — isolated crates, so heavy deps stay out of the core:
-cargo run --release --manifest-path realprobe/Cargo.toml -- 30                # nym mainnet → OracleParams
-cargo run --release --manifest-path quicmix-nym/Cargo.toml --bin nym_e2e      # quic over nym
-cargo run --release --manifest-path quicmix-nym/Cargo.toml --bin nym_rotate   # rotation over nym
-cargo run --manifest-path quicmix-katzenpost/Cargo.toml --bin kp_echo         # katzenpost round-trip
+# real networks (open egress). nym/tor are workspace-EXCLUDED (incompatible native
+# sqlite deps) so they build by --manifest-path; katzenpost/hopr are members (`-p`):
+cargo run --release --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_probe -- 30   # nym mainnet → OracleParams
+cargo run --release --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_e2e           # quic over nym
+cargo run --release --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_rotate        # rotation over nym
+cargo run -p quicmix-katzenpost --bin kp_echo                                 # katzenpost round-trip
 ```
 
 ## docs

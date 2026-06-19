@@ -7,4 +7,4 @@ set -euo pipefail
 cd "$(dirname "$0")/.."            # -> quicmix/
 N="${1:-30}"                        # number of self-addressed pings
 echo "[real-nym] building + probing live Nym mainnet (${N} pings)…"
-exec cargo run --release --manifest-path realprobe/Cargo.toml -- "$N"
+exec cargo run --release --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_probe -- "$N"

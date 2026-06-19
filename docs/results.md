@@ -26,8 +26,8 @@ through the binding and measure it.
 
 ## T1 — measured `OracleParams` from the live substrates
 
-**Nym mainnet** (`realprobe`, 30 self-addressed pings, decoupled send/recv, matched
-by id, throughput from reply-arrival span):
+**Nym mainnet** (`quicmix-nym`'s `nym_probe` bin, 30 self-addressed pings, decoupled
+send/recv, matched by id, throughput from reply-arrival span):
 
 ```
 30/30 returned (0% loss)   RTT p50 2823 ms   p90 4598 ms   throughput 6.3 msg/s
@@ -40,7 +40,7 @@ by id, throughput from reply-arrival span):
 > widening the collection window gives the real picture: **~0% loss**, multi-second
 > RTT. (This is the "update variables/configuration as needed" fix.)
 
-**Tor** (`torprobe`, arti, via `quicmix::tor::StreamSubstrate`, cold cache):
+**Tor** (`quicmix-tor`'s `tor_probe` bin, arti, via `quicmix::tor::StreamSubstrate`, cold cache):
 
 ```
 bootstrap 160 s   stream connect 13.4 s   first-byte RTT 677 ms
@@ -49,7 +49,7 @@ bootstrap 160 s   stream connect 13.4 s   first-byte RTT 677 ms
 
 ## T2 — real QUIC + quicmix CC end-to-end over **Nym mainnet** (the headline)
 
-`quicmix-nym/bin/nym_e2e`: two `quicmix::node::Node`s (ingress A → mix → gateway B →
+`substrates/quicmix-nym`'s `nym_e2e` bin: two `quicmix::node::Node`s (ingress A → mix → gateway B →
 origin), but the "mix" is the **live Nym mixnet**, not the emulator. Wiring built
 this session:
 
@@ -149,17 +149,17 @@ the unlinkability property does).
 ## How to reproduce (open-egress host)
 
 ```sh
-# T1 measure
-cargo run --release -p realprobe -- 30                 # Nym mainnet OracleParams
-cargo run --release -p torprobe -- check.torproject.org:80
+# T1 measure  (nym/tor are workspace-excluded → build by --manifest-path)
+cargo run --release --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_probe -- 30   # Nym mainnet OracleParams
+cargo run --release --manifest-path substrates/quicmix-tor/Cargo.toml --bin tor_probe -- check.torproject.org:80
 
 # T2/T3 over real Nym
-cargo run --release -p quicmix-nym --bin nym_e2e
-QUICMIX_CC=stock   cargo run --release -p quicmix-nym --bin nym_bench
-QUICMIX_CC=quicmix cargo run --release -p quicmix-nym --bin nym_bench
+cargo run --release --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_e2e
+QUICMIX_CC=stock   cargo run --release --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_bench
+QUICMIX_CC=quicmix cargo run --release --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_bench
 
 # T4 over real Nym
-cargo run --release -p quicmix-nym --bin nym_rotate
+cargo run --release --manifest-path substrates/quicmix-nym/Cargo.toml --bin nym_rotate
 
 # T5 Katzenpost (after: cd <katzenpost>/docker && make start && make wait)
 cargo run -p quicmix-katzenpost --bin kp_probe -- 127.0.0.1:64331   # handshake

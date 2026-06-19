@@ -10,12 +10,12 @@ edition = "2021"
 # webpage over the network" real. Isolated crate (path-dep on the core).
 
 [dependencies]
-quicmix = { path = ".." }
-tokio = { version = "1", features = ["full"] }
+quicmix = { path = "../../crates/quicmix" }
+tokio = { workspace = true, features = ["full"] }
 tokio-tungstenite = "0.21"
 futures-util = "0.3"
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true }
 serde_json = "1"
-anyhow = "1"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-url = "2"
+anyhow = { workspace = true }
+rustls = { workspace = true }
+url = { workspace = true }

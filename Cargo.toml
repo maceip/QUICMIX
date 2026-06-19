@@ -1,21 +1,38 @@
-[package]
-name = "quicmix"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = [
+    "crates/quicmix",
+    "substrates/quicmix-hopr",
+    "substrates/quicmix-katzenpost",
+    "demo/quicmix-bounce",
+    "demo/quicmix-bridge",
+]
+# quicmix-nym and quicmix-tor are deliberately NOT workspace members. nym-sdk
+# (via sqlx-sqlite) and arti-client (via rusqlite) each pull a *different*
+# `libsqlite3-sys`, and both `links = "sqlite3"`. Cargo forbids two packages
+# linking the same native library in a single dependency graph, so these two can
+# never coexist in one Cargo.lock. They stay standalone (own lockfile) and are
+# built by path, e.g. `cargo build -p quicmix-nym --manifest-path substrates/quicmix-nym/Cargo.toml`.
+exclude = [
+    "substrates/quicmix-nym",
+    "substrates/quicmix-tor",
+]
+# Bare `cargo build` / `cargo test` only builds the light core crate. The heavier
+# member crates stay opt-in via `-p <crate>` so the everyday core workflow stays fast.
+default-members = ["crates/quicmix"]
 
-[dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util", "signal"] }
-rand = "0.8"
-async-trait = "0.1"
-futures = "0.3"
-quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-rcgen = "0.13"
+# Shared dependency versions live here so the security/transport-critical crates
+# (quinn, rustls, tokio, async-trait, …) can never drift between members. Members
+# reference these with `{ workspace = true, features = [...] }`; features are
+# additive, so each crate still selects exactly the features it needs.
+[workspace.dependencies]
 anyhow = "1"
-# Best-in-class HTTP(S) ingress proxy — off-the-shelf HTTP handling (all methods,
-# chunked, keep-alive, header edge cases, h1/h2, Upgrade/WebSocket) instead of a
-# hand-rolled parser.
-hyper = { version = "1", features = ["server", "client", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
-http-body-util = "0.1"
-bytes = "1"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+futures = "0.3"
+tokio = { version = "1" }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }
+rcgen = "0.13"
+reqwest = { version = "0.12", default-features = false }
+url = "2"

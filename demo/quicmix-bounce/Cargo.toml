@@ -14,12 +14,12 @@ edition = "2021"
 [dependencies]
 # path-dep on the core so the bounce can open a REAL quicmix link to the gateway and fetch the page
 # *through* it (the request egresses at the gateway over QUIC), exactly like quicmix-bridge does.
-quicmix = { path = ".." }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
+quicmix = { path = "../../crates/quicmix" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time"] }
 axum = "0.7"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate"] }
-serde = { version = "1", features = ["derive"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-url = "2"
+reqwest = { workspace = true, features = ["rustls-tls", "gzip", "brotli", "deflate"] }
+serde = { workspace = true }
+rustls = { workspace = true }
+url = { workspace = true }
 regex = "1"
 once_cell = "1"

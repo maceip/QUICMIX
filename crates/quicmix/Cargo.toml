@@ -1,0 +1,21 @@
+[package]
+name = "quicmix"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync", "net", "io-util", "signal"] }
+rand = "0.8"
+async-trait = { workspace = true }
+futures = { workspace = true }
+quinn = { workspace = true }
+rustls = { workspace = true, features = ["tls12", "logging"] }
+rcgen = { workspace = true }
+anyhow = { workspace = true }
+# Best-in-class HTTP(S) ingress proxy — off-the-shelf HTTP handling (all methods,
+# chunked, keep-alive, header edge cases, h1/h2, Upgrade/WebSocket) instead of a
+# hand-rolled parser.
+hyper = { version = "1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"

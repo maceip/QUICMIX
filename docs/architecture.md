@@ -127,7 +127,7 @@ an unlucky all-compromised path is time-bounded.
 
 ## 4. Results (emulator)
 
-Run: `cargo run --manifest-path quicmix/Cargo.toml --bin bench` (and `--bin rotate`).
+Run: `cargo run --bin bench` (and `--bin rotate`) — both live in the core `quicmix` crate.
 
 **Congestion** (`bin/bench`, 4 MB, 3 hops, 5 ms/hop, 2% drop, ~1.2 MB/s rate cap):
 
@@ -178,12 +178,12 @@ ticket**.
   per-hop exponential delay, drops, reordering, and an egress pacer honoring the
   constant-rate `slot_interval`. Exposes the **exact** oracle. The UDP mix-relay
   (`src/relay.rs`) drops it into a real UDP path so unmodified quinn runs over it.
-- **Nym** (`quicmix-nym/` crate, **real + verified live on mainnet**): binds
+- **Nym** (`substrates/quicmix-nym/` crate, **real + verified live on mainnet**): binds
   `MixTransport` to `nym-sdk` (send/recv + SURB return path; **measured** oracle via
   `src/oracle.rs`), wired end-to-end (`spawn_client_bridge` + `NymGateway`). Real
   QUIC + quicmix CC carried an HTTP fetch over live Nym; CC A/B and unlinkable
-  rotation verified (`results.md`). Tor (`quicmix-tor/`), Katzenpost
-  (`quicmix-katzenpost/`, real CBOR), and HOPR (`quicmix-hopr/`, REST) are likewise
+  rotation verified (`results.md`). Tor (`substrates/quicmix-tor/`), Katzenpost
+  (`substrates/quicmix-katzenpost/`, real CBOR), and HOPR (`substrates/quicmix-hopr/`, REST) are likewise
   separate, real bindings — the heavy network deps stay isolated from the core.
 
 ---
@@ -209,9 +209,9 @@ ticket**.
   pre-builds is a follow-on.
 - Layout:
   ```
-  quicmix/
-    `architecture.md`  README.md  `architecture.md`  `results.md`  `testing.md`
-    src/
+  quicmix/                          ← workspace root (virtual manifest)
+    README.md   docs/{architecture,results,testing,roadmap}.md
+    crates/quicmix/src/             ← core crate
       lib.rs       ← MixTransport seam + OracleParams + SubstrateKind + SubstrateError [done]
       node.rs      ← Node: ONE type, both roles (gateway + ingress)    [done]
       client.rs    ← client-side plugs: OracleSource/Congestion/MeasuredCc[done]
@@ -227,10 +227,13 @@ ticket**.
       ingress.rs   ← hyper http→quic ingress proxy                     [done]
       metrics.rs   ← observability contract (prometheus exposition)    [done]
       tor.rs       ← Tor StreamSubstrate + StreamDatagram framing adapter[done]
-    src/bin/  quicmix (node)  bench (congestion)  rotate (rotation)
+    crates/quicmix/src/bin/  quicmix (node)  bench (congestion)  rotate (rotation)
               multipath (striping)  proxy (pooled ingress)  gw_serve  ingress_serve
-    quicmix-nym/  quicmix-tor/  quicmix-katzenpost/  quicmix-hopr/  ← real substrate
-                  bindings (isolated crates; heavy network deps stay out of the core)
+    substrates/  quicmix-nym/  quicmix-tor/  quicmix-katzenpost/  quicmix-hopr/  ← real substrate
+                 bindings. nym & tor are workspace-EXCLUDED (incompatible native sqlite
+                 deps), each with its own Cargo.lock. probes live with their substrate
+                 (nym_probe, tor_probe, hopr_probe, kp_probe/kp_echo).
+    demo/        quicmix-bounce  quicmix-bridge  ← live-globe demo services (not core)
   ```
 
   **Substrates & multipath.** Datagram substrates (`EmulatedMixnet`, Nym,
@@ -377,7 +380,7 @@ a **no-op** (Tor runs its own congestion control and its own circuit rotation,
 head-of-line-blocks the whole path — which is exactly why, in the multipath demo,
 the Tor leg behaves like the "slow substrate."
 
-What exists today (`src/tor.rs`, `quicmix-tor/`): a `StreamSubstrate` trait and a
+What exists today (`crates/quicmix/src/tor.rs`, `substrates/quicmix-tor/`): a `StreamSubstrate` trait and a
 `StreamDatagram` length-prefix framing adapter that lets a Tor (arti) stream
 present as a `MixTransport` and ride the same round-robin. A real arti circuit
 reached `check.torproject.org` (HTTP 301). Use Tor as a **fallback/compatibility

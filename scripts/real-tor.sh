@@ -12,4 +12,4 @@ export HOME="${HOME:-/tmp}"
 # a laptop, but commented so the laptop run keeps arti's permission check:
 # export FS_MISTRUST_DISABLE_PERMISSIONS_CHECKS=1
 echo "[real-tor] building + probing real Tor circuit to ${TARGET}…"
-exec cargo run --release --manifest-path torprobe/Cargo.toml -- "$TARGET"
+exec cargo run --release --manifest-path substrates/quicmix-tor/Cargo.toml --bin tor_probe -- "$TARGET"
