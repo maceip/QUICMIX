@@ -7,19 +7,14 @@ members = [
     "substrates/quicmix-hopr",
     "substrates/quicmix-katzenpost",
     "substrates/quicmix-tor",
-]
-# quicmix-tor is now a normal member: it uses the **native C Tor daemon** over
-# SOCKS5 (no arti, no rusqlite, no libsqlite3-sys), so the old native-lib link
-# conflict is gone for Tor.
-#
-# quicmix-nym: the arti removal also clears nym's path back in — with arti gone,
-# nym-sdk's `libsqlite3-sys` (via sqlx-sqlite) is the *only* sqlite in the graph, so
-# there is no longer a duplicate-`links` conflict (verified: `cargo tree` resolves a
-# single libsqlite3-sys v0.30.1). It stays in `exclude` only until its full nym-sdk
-# build is confirmed green; rejoining it is then a one-line move into `members`.
-exclude = [
     "substrates/quicmix-nym",
 ]
+# All substrates are now first-class workspace members. Removing arti (quicmix-tor
+# moved to the native C Tor daemon over SOCKS5) eliminated the duplicate
+# `links = "sqlite3"` conflict: nym-sdk's `libsqlite3-sys` (via sqlx-sqlite) is now
+# the *only* sqlite in the graph (verified: a single libsqlite3-sys v0.30.1 resolves,
+# and the full nym-sdk + quicmix-nym build is green). Tor pulls no sqlite at all.
+exclude = []
 # Bare `cargo build` builds the core lib + the deployed `quicmix` composition binary
 # (which links the sqlite-free substrates by default). The eval harness and the heavier
 # probe bins stay opt-in via `-p <crate>` so the everyday core workflow stays fast.
