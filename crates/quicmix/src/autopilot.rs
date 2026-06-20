@@ -54,6 +54,12 @@ pub struct Config {
     /// e.g. `127.0.0.1:8787`). Drives the public demo with *real* quinn stats.
     /// Only honoured when the binary is built with the `metrics-ws` feature.
     pub metrics_ws_bind: Option<SocketAddr>,
+    /// Optional TCP bind for the gateway **stream bridge** (`QUICMIX_STREAM_BRIDGE_BIND`,
+    /// e.g. `0.0.0.0:8443`). Lets stream substrates (native Tor) reach this gateway:
+    /// a Tor exit makes a TCP connection here, datagrams are de-framed into the local
+    /// QUIC listener. Only active when this node is a gateway. Pick a Tor-exit-friendly
+    /// port (8443 is in Tor's default reduced exit policy).
+    pub stream_bridge_bind: Option<SocketAddr>,
 }
 
 impl Config {
@@ -83,7 +89,11 @@ impl Config {
             Ok(s) if !s.is_empty() => Some(s.parse().map_err(|e| anyhow!("QUICMIX_METRICS_WS_BIND: {e}"))?),
             _ => None,
         };
-        Ok(Self { gw_bind, ingress_bind, bootstrap, public_ip, cert_out, substrate, metrics_ws_bind })
+        let stream_bridge_bind = match std::env::var("QUICMIX_STREAM_BRIDGE_BIND") {
+            Ok(s) if !s.is_empty() => Some(s.parse().map_err(|e| anyhow!("QUICMIX_STREAM_BRIDGE_BIND: {e}"))?),
+            _ => None,
+        };
+        Ok(Self { gw_bind, ingress_bind, bootstrap, public_ip, cert_out, substrate, metrics_ws_bind, stream_bridge_bind })
     }
 }
 
@@ -190,6 +200,14 @@ pub async fn run(cfg: Config, substrate_builder: Option<Arc<dyn SubstrateBuilder
             let _ = std::fs::write(path, cert.as_ref());
         }
         println!("auto-promoted to GATEWAY · quic+cert on {bound} · public {public_addr}");
+        // Optional stream bridge so native-Tor clients can reach this gateway: a Tor
+        // exit's TCP connection is de-framed into the local QUIC listener.
+        if let Some(br) = cfg.stream_bridge_bind {
+            let quic_local = SocketAddr::new(std::net::IpAddr::from([127, 0, 0, 1]), cfg.gw_bind.port());
+            if let Err(e) = crate::stream_bridge::serve(br, quic_local).await {
+                eprintln!("stream-bridge: failed to start on {br}: {e}");
+            }
+        }
         Some(ep)
     } else {
         println!("no public IP (egress {egress:?}) — running as INGRESS only");

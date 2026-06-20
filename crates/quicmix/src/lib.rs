@@ -21,6 +21,7 @@ pub mod oracle;
 pub mod relay;
 pub mod rotation;
 pub mod sched;
+pub mod stream_bridge;
 pub mod substrate;
 pub mod tor;
 

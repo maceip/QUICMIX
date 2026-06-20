@@ -1,37 +1,40 @@
-//! Real Tor stream substrate — `quicmix::MixTransport` over arti.
+//! Real Tor stream substrate for quicmix — over the **native C Tor daemon** (no arti).
 //!
-//! Bootstraps real Tor, opens a circuit/stream to the gateway, and frames
-//! datagrams over it (`quicmix::tor::StreamDatagram`). Because Tor is one ordered
-//! stream, the whole path head-of-line-blocks — this is the documented "slow leg"
-//! in the round-robin. quicmix's CC does not govern Tor's internal transport.
+//! Frames quicmix datagrams over a SOCKS5 stream through Tor to a gateway's
+//! stream-bridge. The heavy lifting lives in [`quicmix::tor`] (the SOCKS5 client,
+//! the [`quicmix::tor::TorDaemon`] supervisor for the native `tor` process, and the
+//! [`quicmix::tor::StreamDatagram`] framing); this crate is a thin [`MixTransport`]
+//! wrapper that owns one circuit (and optionally the daemon).
 //!
-//! Tested to the extent the sandbox allows: **compiles** against arti-client 0.43;
-//! the framing it relies on is unit-tested in `quicmix::tor`. The live bootstrap
-//! needs open egress to the Tor network (blocked in CI) — run on a laptop.
+//! Because Tor is one ordered stream, the whole path head-of-line-blocks — the
+//! documented "slow leg." quicmix's CC does not govern Tor's internal transport.
 
-use arti_client::{TorClient, TorClientConfig};
 use async_trait::async_trait;
-use quicmix::tor::StreamDatagram;
+use quicmix::tor::{tor_socks_addr, tor_stream_to, StreamDatagram, TorDaemon};
 use quicmix::{MixTransport, OracleParams, SubstrateError, SubstrateKind};
-use std::sync::Arc;
-use tor_rtcompat::PreferredRuntime;
 
-/// A bootstrapped-Tor substrate. Holds the client alive alongside the framed
-/// stream so the circuit isn't torn down.
+/// A Tor-carried datagram substrate. Holds the framed circuit; if it launched its
+/// own native `tor`, the supervisor is held alive too (killed on drop).
 pub struct TorSubstrate {
-    _client: Arc<TorClient<PreferredRuntime>>,
     inner: StreamDatagram,
+    _daemon: Option<TorDaemon>,
 }
 
 impl TorSubstrate {
-    /// Bootstrap real Tor and open a stream to `gateway` (`"host:port"`).
+    /// Open a Tor circuit to `gateway` (`host:port` of the gateway stream-bridge)
+    /// via an already-running native Tor SOCKS proxy (system service, or
+    /// `QUICMIX_TOR_SOCKS`).
     pub async fn connect(gateway: &str, oracle: OracleParams) -> anyhow::Result<Self> {
-        let client = TorClient::create_bootstrapped(TorClientConfig::default()).await?;
-        let stream = client.connect(gateway).await?;
-        Ok(Self {
-            inner: StreamDatagram::new(stream, oracle),
-            _client: client,
-        })
+        let inner = tor_stream_to(tor_socks_addr(), gateway, oracle).await?;
+        Ok(Self { inner, _daemon: None })
+    }
+
+    /// Launch and supervise our **own** native `tor`, then open the circuit through
+    /// it — fully self-contained, no system service required.
+    pub async fn connect_managed(gateway: &str, oracle: OracleParams) -> anyhow::Result<Self> {
+        let daemon = TorDaemon::launch().await?;
+        let inner = tor_stream_to(daemon.socks, gateway, oracle).await?;
+        Ok(Self { inner, _daemon: Some(daemon) })
     }
 }
 

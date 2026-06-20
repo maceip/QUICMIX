@@ -70,9 +70,10 @@ async fn handle(stream: tokio::net::TcpStream, node: Arc<Node>) -> Result<()> {
     let req: serde_json::Value = serde_json::from_str(&first).map_err(|e| anyhow!("bad request json: {e}"))?;
     let gateway = req.get("gateway").and_then(|v| v.as_str()).unwrap_or("");
     let url = req.get("url").and_then(|v| v.as_str()).unwrap_or("https://example.com").to_string();
+    let substrate = req.get("substrate").and_then(|v| v.as_str()).unwrap_or("direct").to_ascii_lowercase();
     let gw_addr = resolve_gateway(gateway)?;
 
-    if let Err(e) = run_measure(&node, gw_addr, &url, &mut tx).await {
+    if let Err(e) = run_measure(&node, gw_addr, &url, &substrate, &mut tx).await {
         let _ = send_json(&mut tx, serde_json::json!({"type":"error","msg": e.to_string()})).await;
     }
     let _ = tx.send(Message::Close(None)).await;
@@ -106,19 +107,58 @@ async fn send_json(tx: &mut Sink, v: serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-/// Run one real measurement against `gw_addr` over a fresh quicmix link.
-async fn run_measure(node: &Node, gw_addr: SocketAddr, url: &str, tx: &mut Sink) -> Result<()> {
+/// Tor bridge port on the gateway (the [`crate::stream_bridge`] TCP listener).
+/// Override via `QUICMIX_TOR_BRIDGE_PORT`; default 8443 (Tor default exit policy).
+fn tor_bridge_port() -> u16 {
+    std::env::var("QUICMIX_TOR_BRIDGE_PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(8443)
+}
+
+/// Oracle timing model for the Tor leg (3 relays; uncapped ordered stream).
+fn tor_oracle() -> crate::OracleParams {
+    crate::OracleParams {
+        hops: 3,
+        mean_hop_delay: Duration::from_millis(100),
+        drop_prob: 0.0,
+        slot_interval: Duration::ZERO,
+        mtu: 1200,
+    }
+}
+
+/// Run one real measurement against `gw_addr` over a fresh quicmix link, carried
+/// over the selected `substrate` (`direct` = one internet hop; `tor` = a real Tor
+/// circuit via the native Tor SOCKS proxy to the gateway's stream bridge).
+async fn run_measure(node: &Node, gw_addr: SocketAddr, url: &str, substrate: &str, tx: &mut Sink) -> Result<()> {
     // 1) real QUIC handshake to the chosen gateway (cert pinned via cert-over-HTTP).
     let t0 = Instant::now();
     let cert = crate::autopilot::fetch_cert(gw_addr).await.map_err(|e| anyhow!("fetch cert {gw_addr}: {e}"))?;
     let peer = CertificateDer::from(cert);
+
+    // Resolve the UDP front the quinn client dials. For `direct` it's the gateway's
+    // public addr; for `tor` we open a real Tor circuit to the gateway's stream
+    // bridge and bridge it to a local UDP front (held alive via `_front_guard`).
+    let (dial_addr, _front_guard, substrate_label) = match substrate {
+        "tor" => {
+            let socks = crate::tor::tor_socks_addr();
+            if !crate::tor::tor_socks_reachable(socks).await {
+                return Err(anyhow!("native Tor SOCKS not reachable at {socks} (is the tor service running?)"));
+            }
+            let bridge = format!("{}:{}", gw_addr.ip(), tor_bridge_port());
+            let sub = crate::tor::tor_stream_to(socks, &bridge, tor_oracle())
+                .await
+                .map_err(|e| anyhow!("tor circuit to {bridge}: {e}"))?;
+            let (front, boundary) = crate::front::spawn_substrate_front(std::sync::Arc::new(sub)).await?;
+            (front, Some(boundary), format!("tor (3-hop) → quicmix gateway {}", gw_addr.ip()))
+        }
+        _ => (gw_addr, None, "direct quicmix QUIC · 1 hop".to_string()),
+    };
+
     let link = node
-        .connect_via("0.0.0.0:0".parse().unwrap(), gw_addr, peer)
+        .connect_via("0.0.0.0:0".parse().unwrap(), dial_addr, peer)
         .await
-        .map_err(|e| anyhow!("connect {gw_addr}: {e}"))?;
+        .map_err(|e| anyhow!("connect {dial_addr} ({substrate_label}): {e}"))?;
     let conn = link.conn.clone();
     let handshake_ms = t0.elapsed().as_secs_f64() * 1000.0;
-    send_json(tx, serde_json::json!({"type":"connected","handshake_ms": handshake_ms})).await?;
+    send_json(tx, serde_json::json!({"type":"connected","handshake_ms": handshake_ms, "substrate": substrate_label})).await?;
 
     // 2) egress = the verified exit: the gateway makes the TCP connection to the
     //    origin, so the origin sees the gateway's IP. A 1-hop path exits there, and

@@ -3,26 +3,26 @@ name = "quicmix-tor"
 version = "0.1.0"
 edition = "2021"
 
-# Real Tor stream substrate: bootstraps arti and exposes a quicmix::MixTransport
-# by framing datagrams over a Tor stream (HoL-bound, by nature of Tor).
+# Real Tor stream substrate over the **native C Tor daemon** (no arti).
 #
-# WORKSPACE-EXCLUDED (see root Cargo.toml `[workspace] exclude`): arti-client pulls
-# rusqlite → libsqlite3-sys (`links = "sqlite3"`), which collides with the
-# different libsqlite3-sys that nym-sdk (quicmix-nym) pulls via sqlx-sqlite. Cargo
-# forbids two packages linking the same native lib in one graph, so this crate
-# keeps its OWN Cargo.lock. Deps are pinned explicitly (not via
-# [workspace.dependencies]) for the same reason.
+# quicmix datagrams are framed over a SOCKS5 stream through Tor to a gateway's
+# stream-bridge. The SOCKS5 client, native-`tor` supervisor (`TorDaemon`), and
+# framing all live in `quicmix::tor`; this crate is a thin MixTransport wrapper +
+# a self-managing sidecar binary. SOCKS5 is plain TCP, so there is NO arti and NO
+# libsqlite3-sys here — the old sqlite-vs-nym link conflict is gone for Tor.
 
 [dependencies]
 quicmix = { path = "../../crates/quicmix" }
-arti-client = { version = "0.43", default-features = false, features = ["tokio", "rustls", "compression"] }
-tor-rtcompat = "0.43"
 async-trait = "0.1"
 anyhow = "1"
-# `io-util` is needed by the `tor_probe` bin (AsyncRead/Write on the Tor stream).
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "process"] }
 
-# Substrate sidecar: bootstrap Tor and expose a local UDP front for the lean client.
+# Substrate sidecar: launch+supervise native Tor and expose a local UDP front.
 [[bin]]
 name = "tor_sidecar"
 path = "src/bin/tor_sidecar.rs"
+
+# Standalone probe of a real Tor circuit (native daemon, no arti).
+[[bin]]
+name = "tor_probe"
+path = "src/bin/tor_probe.rs"

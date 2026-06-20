@@ -1,23 +1,24 @@
 //! Tor substrate **sidecar** — exposes a local UDP front that tunnels quicmix's QUIC
-//! over a real Tor circuit, so the lean `quicmix` client can use Tor without linking
-//! arti (and its sqlite) in-process.
+//! over a real Tor circuit, using the **native C Tor daemon** (no arti). It launches
+//! and supervises its own `tor` process, so the lean `quicmix` client can offer Tor
+//! without any heavy in-process deps.
 //!
-//! Sidecar contract (see `quicmix::front`): bootstrap the substrate, then print
+//! Sidecar contract (see `quicmix::front`): bring up the substrate, then print
 //!
 //! ```text
 //! FRONT <ip:port>
 //! ```
 //!
 //! once on stdout and run until killed. The client dials that front; bytes traverse
-//! Tor to the gateway.
+//! Tor to the gateway's **stream bridge** (`quicmix::stream_bridge`).
 //!
 //! Config:
-//!   QUICMIX_SIDECAR_TARGET  gateway `host:port` (set by the client when it spawns us)
+//!   QUICMIX_SIDECAR_TARGET  gateway stream-bridge `host:port` (set by the client)
 //!   QUICMIX_TOR_GATEWAY     same, for running the sidecar standalone
 //!
-//! Tor's exit connects to the gateway's public `host:port` directly, so this needs no
-//! gateway-side changes — the same quinn gateway the autopilot already runs is the
-//! target. Live bootstrap needs open egress to the Tor network (run on a laptop).
+//! The native Tor exit makes a TCP connection to the gateway's stream-bridge port
+//! (de-framed there into the local QUIC listener). Live bootstrap needs egress to
+//! the Tor network.
 
 use quicmix::front::{spawn_substrate_front, SIDECAR_TARGET_ENV};
 use quicmix::OracleParams;
@@ -47,8 +48,8 @@ async fn main() -> anyhow::Result<()> {
             anyhow::anyhow!("set {SIDECAR_TARGET_ENV} or QUICMIX_TOR_GATEWAY=<host:port>")
         })?;
 
-    eprintln!("tor-sidecar: bootstrapping Tor + opening a circuit to {target} …");
-    let sub = Arc::new(TorSubstrate::connect(&target, tor_oracle()).await?);
+    eprintln!("tor-sidecar: launching native tor + opening a circuit to {target} …");
+    let sub = Arc::new(TorSubstrate::connect_managed(&target, tor_oracle()).await?);
     let (front, _boundary) = spawn_substrate_front(sub).await?;
 
     // Announce the front (flush: stdout is block-buffered when piped to the client).

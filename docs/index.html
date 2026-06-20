@@ -50,6 +50,12 @@
     border:1px solid var(--p-dim);font-size:12px}
   .ctl .gw .ip{font-size:10px;color:var(--p-dim);margin-top:2px}
   .ctl .gw.on{border-color:var(--cyan);color:var(--cyan);background:rgba(56,225,255,.12);box-shadow:0 0 9px rgba(56,225,255,.3)}
+  .ctl .subs{display:flex;gap:7px;margin-top:7px;align-items:stretch}
+  .ctl .subs-k{align-self:center;font-size:9px;text-transform:uppercase;letter-spacing:.14em;color:var(--p-dim);padding-right:1px}
+  .ctl .sub{flex:1;text-align:left;padding:6px 9px;cursor:pointer;color:#cdbcff;background:rgba(157,123,255,.06);
+    border:1px solid rgba(157,123,255,.28);font-size:12px}
+  .ctl .sub .sip{font-size:9.5px;color:rgba(157,123,255,.7);margin-top:2px}
+  .ctl .sub.on{border-color:#9d7bff;color:#d9ccff;background:rgba(157,123,255,.16);box-shadow:0 0 9px rgba(157,123,255,.32)}
   .ctl .note{margin-top:8px;font-size:10.5px;color:var(--p-dim);line-height:1.45}
 
   /* always-on map key, bottom-left — explains the coloured dots */
@@ -500,12 +506,20 @@ function RouteNodes({path}){
 // at the ingress (you) and a peer at the gateway). The deployed demo path is a DIRECT quicmix QUIC
 // link (1 hop) to the gateway, which then egresses to the domain. The mix substrates drawn on the
 // globe are illustrative topology, not nodes this circuit traverses.
-function buildPath(gwIndex,domain){
+function buildPath(gwIndex,domain,substrate){
   const g=GATEWAYS[gwIndex];
   const node=(lat,lon,label,color)=>{const v=ll(lat,lon);return{v,dir:v.clone().normalize(),label,color};};
-  return [ node(INGRESS.lat,INGRESS.lon,"you · quicmix client",COLORS.gateway),
-           node(g.lat,g.lon,`quicmix gateway · ${g.ip} · ${g.city}`,COLORS.gateway),
-           node(ORIGIN.lat,ORIGIN.lon,domain||"destination",COLORS.origin) ];
+  const path=[ node(INGRESS.lat,INGRESS.lon,"you · quicmix client",COLORS.gateway) ];
+  // tor routes the QUIC link through a real 3-relay circuit before the gateway; we
+  // draw a representative tor relay hop (illustrative position, real in-path role).
+  if(substrate==="tor"){
+    const m=MIXNETS.find(x=>x.id==="tor");
+    const relay=clusterDots(m.center,m.n)[2];
+    path.push(node(relay[0],relay[1],"tor relay (3-hop circuit)",COLORS.tor));
+  }
+  path.push(node(g.lat,g.lon,`quicmix gateway · ${g.ip} · ${g.city}`,COLORS.gateway));
+  path.push(node(ORIGIN.lat,ORIGIN.lon,domain||"destination",COLORS.origin));
+  return path;
 }
 
 // neon rail: layered glowing lines through the revealed portion of the path
@@ -588,8 +602,8 @@ function Rig({path,stage,dialRef,trafRef,packetState,labelState,railState}){
   return null;
 }
 
-function Scene({gwIndex,onPick,stage,dialRef,trafRef,dim,domain,activeMix}){
-  const path=useMemo(()=>buildPath(gwIndex,domain),[gwIndex,domain]);
+function Scene({gwIndex,onPick,stage,dialRef,trafRef,dim,domain,substrate}){
+  const path=useMemo(()=>buildPath(gwIndex,domain,substrate),[gwIndex,domain,substrate]);
   const packetState=useRef({pos:null,visible:false});
   const labelState=useRef(-1); const railState=useRef({reveal:0,connected:false});
   const [rail,setRail]=useState({reveal:0,connected:false});
@@ -650,12 +664,12 @@ function Responsive({stage}){
 const clPath=(a,b)=>{const mx=(a[0]+b[0])/2;return `M${a[0]},${a[1]} L${mx},${a[1]} L${mx},${b[1]} L${b[0]},${b[1]}`;};
 function ConnectionLegend({legend,visible,flowing,title,cls=""}){
   const you=[46,63], ingress=[138,63], gw=[486,63], dom=[582,63], subX=312, subY=[16,46,76,106];
-  const act=-1, fl=flowing?" flow":"";   // the live demo path is DIRECT quicmix QUIC; no mix is in-path
+  const act=legend.active, fl=flowing?" flow":"";   // >=0: that mix substrate (tor) is in-path; -1: direct
   const edges=[{d:clPath(you,ingress),on:true}];
-  // mix substrates shown as dim, available-but-unused parallel options (never chained in series)
+  // when a substrate is active its rail lights; the others stay dim (available, not in path).
   legend.subs.forEach((s,i)=>{const sn=[subX,subY[i]];
-    edges.push({d:clPath(ingress,sn),on:false}); edges.push({d:clPath(sn,gw),on:false});});
-  edges.push({d:clPath(ingress,gw),on:true});  // the REAL active rail: direct ingress → gateway
+    edges.push({d:clPath(ingress,sn),on:i===act}); edges.push({d:clPath(sn,gw),on:i===act});});
+  if(act<0) edges.push({d:clPath(ingress,gw),on:true});  // direct: ingress → gateway rail
   edges.push({d:clPath(gw,dom),on:true});
   const nodes=[
     {p:you,color:"#dffff0",main:"you",sub:"client"},
@@ -670,7 +684,7 @@ function ConnectionLegend({legend,visible,flowing,title,cls=""}){
       <span class="cl-title">${title}</span>
       <span class=${"cl-jp"+(flowing?" act":"")}>${flowing?"通信中":"待機"}</span>
     </div>
-    <div class="cl-substrate">substrate <b>${legend.substrate}</b> · mixnet substrates shown are available, not in this path</div>
+    <div class="cl-substrate">substrate <b>${legend.substrate}</b> · ${legend.active>=0?"carried over the lit substrate (the others are available, not in this path)":"mixnet substrates shown are available, not in this path"}</div>
     <div class="cl-hops">client next hop <b>→ ${legend.gateway.ip}</b> · ${legend.gateway.city}${legend.verified?html`<span style=${{color:"#52ff8f",marginLeft:"5px"}}>✓ live egress</span>`:legend.offline?html`<span style=${{color:"#ff7a7a",marginLeft:"5px"}}>metrics offline</span>`:""}
       <span class="cl-sep">·</span> gateway prev hop <b>← ingress (you)</b></div>
     <svg class="cl-svg" viewBox="0 0 620 126" preserveAspectRatio="xMidYMid meet">
@@ -737,11 +751,14 @@ function App(){
   // representative live stats.
   const [gwIndex,setGwIndex]=useState(1);
   const [url,setUrl]=useState("https://www.example.com");
+  // which transport substrate the QUIC link rides: "direct" (1 internet hop) or
+  // "tor" (a real 3-relay Tor circuit to the gateway's stream-bridge). Drives the
+  // node's measurement path, so the live metrics genuinely reflect the choice.
+  const [substrate,setSubstrate]=useState("direct");
   const [stage,setStage]=useState("intro");
   const [metrics,setMetrics]=useState(null);
   const [,setTick]=useState(0);   // nudges re-render ~15fps so the legend hop + metrics track the refs
   // the ONE substrate this circuit rides (re-rolled per fetch); the others show as parallel options
-  const [activeMix,setActiveMix]=useState(0);
   const histRef=useRef({rtt:[],bps:[],cwnd:[]});   // recent series for the status-rail sparklines
   // live metrics: status of the REAL quic run streamed from the node's metrics-ws over wss
   const [bridge,setBridge]=useState({status:"idle", err:null});   // idle|connecting|streaming|done|offline|error
@@ -759,17 +776,17 @@ function App(){
   // open a REAL run on the node's metrics-ws: stream the verified egress + live quinn stats into
   // `metrics`. the globe animation is independent + illustrative; every number shown here comes off
   // this socket.
-  function openBridge(target, gateway){
+  function openBridge(target, gateway, substrate){
     closeWs(); settledRef.current=false; cwndRef.current=null;
     const settle=(status,extra)=>{ if(settledRef.current && status!=="error") return; settledRef.current=true; setBridge(b=>({...b,status,...(extra||{})})); };
     let ws; try{ ws=new WebSocket(METRICS_WS); }catch(e){ setBridge({status:"offline",err:String(e&&e.message||e)}); return; }
     wsRef.current=ws;
     setBridge({status:"connecting", err:null});
     const offlineTimer=setTimeout(()=>{ if(!settledRef.current){ setBridge(b=>({...b,status:"offline",err:"no response"})); settledRef.current=true; } }, 20000);
-    ws.onopen=()=>{ try{ ws.send(JSON.stringify({url:target, gateway})); }catch{} };
+    ws.onopen=()=>{ try{ ws.send(JSON.stringify({url:target, gateway, substrate})); }catch{} };
     ws.onmessage=(ev)=>{
       let m; try{ m=JSON.parse(ev.data); }catch{ return; }
-      if(m.type==="connected"){ setBridge(b=>({...b,status:"streaming",handshake:m.handshake_ms})); }
+      if(m.type==="connected"){ setMetrics(p=>({...(p||{}), substrateLabel:m.substrate})); setBridge(b=>({...b,status:"streaming",handshake:m.handshake_ms})); }
       else if(m.type==="egress"){ setMetrics(p=>({...(p||{}), egress:m.ip})); setBridge(b=>({...b,status:"streaming"})); }
       else if(m.type==="page"){ setMetrics(p=>({...(p||{}), code:m.code, pageBytes:m.bytes, pageHtml:m.html||null, finalUrl:m.url})); setBridge(b=>({...b,status:"streaming"})); }
       else if(m.type==="sample"){
@@ -791,7 +808,7 @@ function App(){
   function startFetch(){
     histRef.current={rtt:[],bps:[],cwnd:[]};
     dialRef.current=0; trafRef.current=0; setMetrics(null);
-    openBridge(urlOf(url), GATEWAYS[gwIndex].ip);
+    openBridge(urlOf(url), GATEWAYS[gwIndex].ip, substrate);
     setStage("dialing");
   }
   function reset(){ closeWs(); dialRef.current=0; trafRef.current=0; setMetrics(null); setBridge({status:"idle",err:null}); setStage("intro"); }
@@ -823,9 +840,14 @@ function App(){
   // quicmix sits on BOTH ends; the mix substrates are PARALLEL options, one of them active this circuit
   const liveOk = bridge.status==="streaming" || bridge.status==="done";
   const liveDown = bridge.status==="offline" || bridge.status==="error";
+  // the substrate actually in the path. For tor we light the tor rail; for direct
+  // no mix is in-path. The label prefers the node's live `connected.substrate`.
+  const torIdx = MIXNETS.findIndex(m=>m.id==="tor");
   const legend = {
-    active: -1,
-    substrate: "direct quicmix QUIC · 1 hop",
+    active: substrate==="tor" ? torIdx : -1,
+    substrate: metrics?.substrateLabel || (substrate==="tor"
+      ? "tor (3-hop) → quicmix gateway"
+      : "direct quicmix QUIC · 1 hop"),
     subs: MIXNETS.map(m=>({id:m.id, label:m.label, color:COLORS[m.id]})),
     gateway: { ip: metrics?.egress || gw.ip, city:gw.city },
     verified: liveOk && !!metrics?.egress,
@@ -842,7 +864,7 @@ function App(){
     <${Canvas} camera=${{position:[0,0.9,5.2],fov:52}} gl=${{antialias:true,alpha:false}} dpr=${[1,2]}
       onCreated=${({gl})=>gl.setClearColor("#02060a")} onPointerMissed=${()=>{}}>
       <${Responsive} stage=${stage}/>
-      <${Scene} gwIndex=${gwIndex} onPick=${stage==="intro"?setGwIndex:()=>{}} stage=${stage} dialRef=${dialRef} trafRef=${trafRef} dim=${dim} domain=${domain} activeMix=${activeMix}/>
+      <${Scene} gwIndex=${gwIndex} onPick=${stage==="intro"?setGwIndex:()=>{}} stage=${stage} dialRef=${dialRef} trafRef=${trafRef} dim=${dim} domain=${domain} substrate=${substrate}/>
     </${Canvas}>
 
     <div class="hud">
@@ -874,7 +896,14 @@ function App(){
           ${GATEWAYS.map((g,i)=>html`<div key=${g.id} class=${"gw"+(i===gwIndex?" on":"")} onClick=${()=>setGwIndex(i)}>
             <div>${g.provider}</div><div class="ip">${g.ip}</div></div>`)}
         </div>
-        <div class="note">enter a url and hit fetch · quicmix opens a direct QUIC tunnel to the chosen gateway, fetches the page over it, and reports live link metrics</div>
+        <div class="subs">
+          <span class="subs-k">substrate</span>
+          <div class=${"sub"+(substrate==="direct"?" on":"")} onClick=${()=>setSubstrate("direct")}>
+            <div>direct</div><div class="sip">quic · 1 hop</div></div>
+          <div class=${"sub"+(substrate==="tor"?" on":"")} onClick=${()=>setSubstrate("tor")}>
+            <div>tor</div><div class="sip">real 3-relay circuit</div></div>
+        </div>
+        <div class="note">enter a url and hit fetch · quicmix carries the QUIC link over the chosen substrate${substrate==="tor"?html` (a <b>real Tor circuit</b> to the gateway's stream-bridge)`:" (a direct 1-hop QUIC tunnel)"}, fetches the page over it, and reports live link metrics</div>
       </div>`:null}
 
       ${(stage==="dialing"||stage==="traffic")?html`<div class="frame metrics dock">
@@ -896,7 +925,7 @@ function App(){
       ${stage==="loaded"?html`<div class="result">
         <div class="result-bar">
           <span>${liveOk
-            ? html`${metrics?.pageHtml!=null?html`<b>document fetched over quicmix</b>`:html`measured over quicmix`} · <b>${GATEWAYS[gwIndex].provider}</b> · egress ${metrics?.egress||gw.ip}${metrics?.code?html` · http ${metrics.code}`:""}${metrics?.bps?html` · ${fmtBps(metrics.bps)}`:""}${metrics?.rtt!=null?html` · ${metrics.rtt.toFixed(0)} ms rtt`:""}`
+            ? html`${metrics?.pageHtml!=null?html`<b>document fetched over quicmix</b>`:html`measured over quicmix`}${substrate==="tor"?html` · <b style=${{color:"#bda6ff"}}>via tor</b>`:""} · <b>${GATEWAYS[gwIndex].provider}</b> · egress ${metrics?.egress||gw.ip}${metrics?.code?html` · http ${metrics.code}`:""}${metrics?.bps?html` · ${fmtBps(metrics.bps)}`:""}${metrics?.rtt!=null?html` · ${metrics.rtt.toFixed(0)} ms rtt`:""}`
             : html`<b style=${{color:"#ff7a7a"}}>live metrics offline</b> · stats unavailable · page preview only`}</span>
           <a class="rb-url" href=${target} target="_blank" rel="noopener noreferrer">${target} ↗</a></div>
         ${metrics?.pageHtml!=null

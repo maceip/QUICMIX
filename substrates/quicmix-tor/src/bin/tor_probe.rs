@@ -1,49 +1,27 @@
-//! torprobe — measure a real Tor circuit via arti, through quicmix's
-//! `StreamSubstrate` trait (so the trait is exercised against the real network).
+//! tor_probe — measure a real Tor circuit via the **native C Tor daemon** (no arti),
+//! using quicmix's SOCKS5 client. Launches and supervises its own `tor`.
 //!
-//! Run: `cargo run --release --manifest-path quicmix/torprobe/Cargo.toml -- [host:port]`
-//! If arti complains about state-dir permissions on a restricted host, set
-//! `FS_MISTRUST_DISABLE_PERMISSIONS_CHECKS=1` and a writable `HOME`.
+//! Run: `cargo run --bin tor_probe -- [host:port]`  (default check.torproject.org:80)
 
 use anyhow::Result;
-use arti_client::{TorClient, TorClientConfig};
-use quicmix::tor::{Stream, StreamSubstrate};
-use std::sync::Arc;
+use quicmix::tor::{socks5_connect, TorDaemon};
 use std::time::Instant;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tor_rtcompat::PreferredRuntime;
-
-/// Real `StreamSubstrate` backed by a bootstrapped arti Tor client.
-struct TorSub(Arc<TorClient<PreferredRuntime>>);
-
-#[async_trait::async_trait]
-impl StreamSubstrate for TorSub {
-    async fn open(&self, target: &str) -> std::io::Result<Box<dyn Stream>> {
-        let s = self
-            .0
-            .connect(target)
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        Ok(Box::new(s))
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let target = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "check.torproject.org:80".to_string());
-    let host = target.split(':').next().unwrap_or("").to_string();
+    let target = std::env::args().nth(1).unwrap_or_else(|| "check.torproject.org:80".to_string());
+    let (host, port) = target.rsplit_once(':').unwrap_or((target.as_str(), "80"));
+    let port: u16 = port.parse().unwrap_or(80);
 
-    eprintln!("bootstrapping Tor (arti)…");
+    eprintln!("launching native tor…");
     let t0 = Instant::now();
-    let tor = TorClient::create_bootstrapped(TorClientConfig::default()).await?;
+    let tor = TorDaemon::launch().await?;
     let boot = t0.elapsed();
-    eprintln!("bootstrapped in {:.1}s; opening circuit to {target}…", boot.as_secs_f64());
+    eprintln!("bootstrapped in {:.1}s (socks {}); opening circuit to {target}…", boot.as_secs_f64(), tor.socks);
 
-    let sub = TorSub(tor);
     let t1 = Instant::now();
-    let mut stream = sub.open(&target).await?;
+    let mut stream = socks5_connect(tor.socks, host, port).await?;
     let connect = t1.elapsed();
 
     let req = format!("GET / HTTP/1.0\r\nHost: {host}\r\n\r\n");
@@ -54,7 +32,7 @@ async fn main() -> Result<()> {
     let n = stream.read(&mut buf).await?;
     let rtt = t2.elapsed();
 
-    println!("real Tor (arti) → {target}  [via quicmix::tor::StreamSubstrate]:");
+    println!("real Tor (native daemon) → {target}  [via quicmix::tor::socks5_connect]:");
     println!("  bootstrap:      {:.1} s", boot.as_secs_f64());
     println!("  stream connect: {:.0} ms", connect.as_secs_f64() * 1e3);
     println!("  first-byte RTT: {:.0} ms ({n} bytes)", rtt.as_secs_f64() * 1e3);
